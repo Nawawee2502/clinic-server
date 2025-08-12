@@ -219,7 +219,7 @@ async function startServer() {
             console.log(`📚 Docs: http://${HOST}:${PORT}/api/docs`);
             console.log(`⚡ Environment: ${process.env.NODE_ENV || 'development'}`);
             console.log(`📁 Public Path: ${publicPath}`);
-            console.log(`🌐 CORS Origins: ${corsOption.origin.join(', ')}`);
+            console.log(`🌐 CORS Origins: All origins allowed (*)`);
             console.log('\n📋 Available API Endpoints:');
             console.log('   📍 Location APIs:');
             console.log('      GET  /api/provinces');
