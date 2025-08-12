@@ -34,18 +34,7 @@ app.use(morgan('combined')); // HTTP request logger
 // };
 
 const corsOption = {
-    origin: [
-        // Local development
-        "http://localhost:3002",
-        "http://127.0.0.1:3002",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        // Vercel deployments (จะต้องอัพเดตหลังจาก deploy)
-        "https://clinic-app-dun.vercel.app",
-        // "https://your-backend-api.vercel.app",
-        // Allow all Vercel domains in development
-        /\.vercel\.app$/
-    ],
+    origin: true, // อนุญาตทุก origin
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
     optionsSuccessStatus: 200,
