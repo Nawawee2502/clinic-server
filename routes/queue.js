@@ -60,6 +60,7 @@ router.get('/appointments/today', async (req, res) => {
                 a.APPOINTMENT_TIME,
                 a.REASON,
                 a.STATUS,
+                a.VN_NUMBER, -- ✅ เพิ่ม VN_NUMBER
                 a.CREATED_AT,
                 -- ข้อมูลผู้ป่วย
                 p.HNCODE,
@@ -102,6 +103,7 @@ router.post('/create', async (req, res) => {
 
     try {
         const { HNCODE, CHIEF_COMPLAINT, CREATED_BY } = req.body;
+        // ✅ ไม่รับ VNO จาก Frontend แล้ว เพราะจะสร้างใหม่
 
         if (!HNCODE) {
             return res.status(400).json({
@@ -110,7 +112,6 @@ router.post('/create', async (req, res) => {
             });
         }
 
-        // Get connection from pool
         connection = await dbPool.getConnection();
 
         // ตรวจสอบว่าผู้ป่วยมีอยู่จริง
@@ -126,6 +127,22 @@ router.post('/create', async (req, res) => {
             });
         }
 
+        // ✅ สร้าง VN Number ใหม่ที่ถูกต้อง
+        const today = new Date();
+        const buddhistYear = (today.getFullYear() + 543).toString().slice(-2); // 68
+        const month = String(today.getMonth() + 1).padStart(2, '0'); // 08
+        const day = String(today.getDate()).padStart(2, '0'); // 15
+
+        // หาเลขรันนิ่งถัดไป (จากจำนวน VN ที่มีวันนี้)
+        const [vnCount] = await connection.execute(`
+            SELECT COUNT(*) + 1 as next_number
+            FROM TREATMENT1 
+            WHERE VNO LIKE ? AND DATE(SYSTEM_DATE) = CURDATE()
+        `, [`VN${buddhistYear}${month}${day}%`]);
+
+        const runningNumber = vnCount[0].next_number.toString().padStart(3, '0');
+        const vnNumber = `VN${buddhistYear}${month}${day}${runningNumber}`;
+
         // หาหมายเลขคิวถัดไป
         const [queueCheck] = await connection.execute(`
             SELECT COALESCE(MAX(QUEUE_NUMBER), 0) + 1 as next_number
@@ -134,8 +151,7 @@ router.post('/create', async (req, res) => {
         `);
 
         const nextQueueNumber = queueCheck[0].next_number;
-        const queueId = `Q${new Date().toISOString().split('T')[0].replace(/-/g, '')}${nextQueueNumber.toString().padStart(3, '0')}`;
-        const vno = `${new Date().toISOString().split('T')[0].replace(/-/g, '')}${nextQueueNumber.toString().padStart(3, '0')}`;
+        const queueId = `Q${today.toISOString().split('T')[0].replace(/-/g, '')}${nextQueueNumber.toString().padStart(3, '0')}`;
 
         await connection.beginTransaction();
 
@@ -143,7 +159,7 @@ router.post('/create', async (req, res) => {
         await connection.execute(`
             INSERT INTO TREATMENT1 (VNO, HNNO, RDATE, STATUS1, SYSTEM_DATE, SYSTEM_TIME, QUEUE_ID)
             VALUES (?, ?, CURDATE(), 'รอตรวจ', CURDATE(), CURTIME(), ?)
-        `, [vno, HNCODE, queueId]);
+        `, [vnNumber, HNCODE, queueId]);
 
         // สร้างคิว
         await connection.execute(`
@@ -160,7 +176,7 @@ router.post('/create', async (req, res) => {
             message: 'สร้างคิวสำเร็จ',
             data: {
                 QUEUE_ID: queueId,
-                VNO: vno,
+                VNO: vnNumber, // ✅ VN Number ใหม่ รูปแบบ VN680815001
                 QUEUE_NUMBER: nextQueueNumber,
                 HNCODE: HNCODE,
                 PATIENT_NAME: `${patientCheck[0].PRENAME}${patientCheck[0].NAME1} ${patientCheck[0].SURNAME}`,
@@ -178,19 +194,11 @@ router.post('/create', async (req, res) => {
         }
 
         console.error('Error creating queue:', error);
-
-        if (error.code === 'ER_DUP_ENTRY') {
-            res.status(409).json({
-                success: false,
-                message: 'คิวนี้มีอยู่แล้ว'
-            });
-        } else {
-            res.status(500).json({
-                success: false,
-                message: 'เกิดข้อผิดพลาดในการสร้างคิว',
-                error: error.message
-            });
-        }
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการสร้างคิว',
+            error: error.message
+        });
     } finally {
         if (connection) {
             connection.release();
@@ -214,10 +222,9 @@ router.post('/checkin', async (req, res) => {
             });
         }
 
-        // Get connection from pool
         connection = await dbPool.getConnection();
 
-        // ตรวจสอบนัดหมาย
+        // ตรวจสอบนัดหมายและดึง VN_NUMBER
         const [appointmentCheck] = await connection.execute(`
             SELECT a.*, p.PRENAME, p.NAME1, p.SURNAME
             FROM APPOINTMENT_SCHEDULE a
@@ -245,7 +252,9 @@ router.post('/checkin', async (req, res) => {
 
         const nextQueueNumber = queueCheck[0].next_number;
         const queueId = `Q${new Date().toISOString().split('T')[0].replace(/-/g, '')}${nextQueueNumber.toString().padStart(3, '0')}`;
-        const vno = `${new Date().toISOString().split('T')[0].replace(/-/g, '')}${nextQueueNumber.toString().padStart(3, '0')}`;
+
+        // ✅ ใช้ VN_NUMBER จากนัดหมาย (ที่เป็น พ.ศ. แล้ว)
+        const vnNumber = appointment.VN_NUMBER;
 
         await connection.beginTransaction();
 
@@ -253,7 +262,7 @@ router.post('/checkin', async (req, res) => {
         await connection.execute(`
             INSERT INTO TREATMENT1 (VNO, HNNO, RDATE, STATUS1, SYSTEM_DATE, SYSTEM_TIME, QUEUE_ID)
             VALUES (?, ?, CURDATE(), 'รอตรวจ', CURDATE(), CURTIME(), ?)
-        `, [vno, appointment.HNCODE, queueId]);
+        `, [vnNumber, appointment.HNCODE, queueId]); // ✅ ใช้ VN จากนัดหมาย
 
         // สร้างคิวจากนัดหมาย
         await connection.execute(`
@@ -277,7 +286,7 @@ router.post('/checkin', async (req, res) => {
             message: 'เช็คอินสำเร็จ',
             data: {
                 QUEUE_ID: queueId,
-                VNO: vno,
+                VNO: vnNumber, // ✅ ส่ง VN Number ที่ถูกต้อง
                 QUEUE_NUMBER: nextQueueNumber,
                 HNCODE: appointment.HNCODE,
                 PATIENT_NAME: `${appointment.PRENAME}${appointment.NAME1} ${appointment.SURNAME}`,

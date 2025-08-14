@@ -48,6 +48,7 @@ router.get('/', async (req, res) => {
                 a.APPOINTMENT_TIME,
                 a.REASON,
                 a.STATUS,
+                a.VN_NUMBER, -- ✅ เพิ่ม VN_NUMBER
                 a.CREATED_AT,
                 -- ข้อมูลผู้ป่วย
                 p.HNCODE,
@@ -267,9 +268,10 @@ router.post('/', async (req, res) => {
         const {
             HNCODE, APPOINTMENT_DATE, APPOINTMENT_TIME, REASON,
             DOCTOR_CODE, CREATED_BY
+            // ✅ ลบ vnNumber ออก ให้สร้างเอง
         } = req.body;
 
-        console.log('📥 Received data:', req.body); // เพิ่มบรรทัดนี้ดู
+        console.log('📥 Received appointment data:', req.body);
 
         if (!HNCODE || !APPOINTMENT_DATE || !APPOINTMENT_TIME) {
             return res.status(400).json({
@@ -278,14 +280,30 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // ✅ แก้ไข: แปลง undefined เป็น null
+        // ✅ สร้าง VN Number สำหรับนัดหมาย
+        const appointmentDate = new Date(APPOINTMENT_DATE);
+        const buddhistYear = (appointmentDate.getFullYear() + 543).toString().slice(-2);
+        const month = String(appointmentDate.getMonth() + 1).padStart(2, '0');
+        const day = String(appointmentDate.getDate()).padStart(2, '0');
+
+        // หาเลขรันนิ่งสำหรับวันที่นัด
+        const [vnCount] = await db.execute(`
+            SELECT COUNT(*) + 1 as next_number
+            FROM APPOINTMENT_SCHEDULE 
+            WHERE APPOINTMENT_DATE = ? AND VN_NUMBER IS NOT NULL
+        `, [APPOINTMENT_DATE]);
+
+        const runningNumber = vnCount[0].next_number.toString().padStart(3, '0');
+        const vnNumber = `VN${buddhistYear}${month}${day}${runningNumber}`;
+
         const safeData = {
             HNCODE: HNCODE || null,
             APPOINTMENT_DATE: APPOINTMENT_DATE || null,
             APPOINTMENT_TIME: APPOINTMENT_TIME || null,
             REASON: REASON || null,
             DOCTOR_CODE: DOCTOR_CODE || null,
-            CREATED_BY: CREATED_BY || null
+            CREATED_BY: CREATED_BY || null,
+            VN_NUMBER: vnNumber // ✅ ใช้ VN Number ที่สร้างใหม่
         };
 
         // ตรวจสอบว่าผู้ป่วยมีอยู่จริง
@@ -310,12 +328,12 @@ router.post('/', async (req, res) => {
 
         const appointmentId = `APT${safeData.APPOINTMENT_DATE.replace(/-/g, '')}${countResult[0].next_number.toString().padStart(3, '0')}`;
 
-        // ✅ แก้ไข: ใช้ safeData แทน req.body
+        // บันทึกพร้อม VN_NUMBER
         const [result] = await db.execute(`
             INSERT INTO APPOINTMENT_SCHEDULE (
                 APPOINTMENT_ID, HNCODE, APPOINTMENT_DATE, APPOINTMENT_TIME,
-                REASON, DOCTOR_CODE, CREATED_BY, STATUS
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'นัดไว้')
+                REASON, DOCTOR_CODE, CREATED_BY, STATUS, VN_NUMBER
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'นัดไว้', ?)
         `, [
             appointmentId,
             safeData.HNCODE,
@@ -323,7 +341,8 @@ router.post('/', async (req, res) => {
             safeData.APPOINTMENT_TIME,
             safeData.REASON,
             safeData.DOCTOR_CODE,
-            safeData.CREATED_BY
+            safeData.CREATED_BY,
+            safeData.VN_NUMBER // ✅ VN Number รูปแบบใหม่
         ]);
 
         res.status(201).json({
@@ -336,6 +355,7 @@ router.post('/', async (req, res) => {
                 APPOINTMENT_DATE: safeData.APPOINTMENT_DATE,
                 APPOINTMENT_TIME: safeData.APPOINTMENT_TIME,
                 REASON: safeData.REASON,
+                VN_NUMBER: safeData.VN_NUMBER, // ✅ ส่ง VN Number กลับไป
                 STATUS: 'นัดไว้'
             }
         });
