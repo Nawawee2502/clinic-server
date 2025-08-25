@@ -535,10 +535,13 @@ router.get('/stats/summary', async (req, res) => {
     }
 });
 
-// PUT update entire treatment - แก้ไขใหม่ทั้งหมด
+// PUT update entire treatment
 router.put('/:vno', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
+
+    // Helper function to convert undefined to null
+    const toNull = (value) => value === undefined ? null : value;
 
     try {
         // Get connection from pool และเริ่ม transaction
@@ -552,21 +555,30 @@ router.put('/:vno', async (req, res) => {
         } = req.body;
 
         console.log(`🔄 Updating treatment ${vno}:`, {
-            SYMPTOM, STATUS1, diagnosis,
+            SYMPTOM: toNull(SYMPTOM),
+            STATUS1: toNull(STATUS1),
+            diagnosis: toNull(diagnosis),
             drugsCount: drugs.length,
             proceduresCount: procedures.length
         });
 
-        // Update main treatment
+        // Update main treatment - Convert all undefined values to null
         const [updateResult] = await connection.execute(`
             UPDATE TREATMENT1 SET 
-                SYMPTOM = COALESCE(?, SYMPTOM), 
-                STATUS1 = COALESCE(?, STATUS1),
-                DXCODE = COALESCE(?, DXCODE),
-                ICD10CODE = COALESCE(?, ICD10CODE),
-                TREATMENT1 = COALESCE(?, TREATMENT1)
+                SYMPTOM = ?, 
+                STATUS1 = ?,
+                DXCODE = ?,
+                ICD10CODE = ?,
+                TREATMENT1 = ?
             WHERE VNO = ?
-        `, [SYMPTOM, STATUS1, DXCODE, ICD10CODE, TREATMENT1, vno]);
+        `, [
+            toNull(SYMPTOM),
+            toNull(STATUS1),
+            toNull(DXCODE),
+            toNull(ICD10CODE),
+            toNull(TREATMENT1),
+            vno
+        ]);
 
         if (updateResult.affectedRows === 0) {
             await connection.rollback();
@@ -576,8 +588,8 @@ router.put('/:vno', async (req, res) => {
             });
         }
 
-        // Update/Insert diagnosis
-        if (diagnosis) {
+        // Update/Insert diagnosis - Handle undefined values
+        if (diagnosis && typeof diagnosis === 'object') {
             await connection.execute(`
                 INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
                 VALUES (?, ?, ?, ?, ?)
@@ -586,11 +598,17 @@ router.put('/:vno', async (req, res) => {
                 PRESENT_ILL = VALUES(PRESENT_ILL),
                 PHYSICAL_EXAM = VALUES(PHYSICAL_EXAM),
                 PLAN1 = VALUES(PLAN1)
-            `, [vno, diagnosis.CHIEF_COMPLAINT, diagnosis.PRESENT_ILL, diagnosis.PHYSICAL_EXAM, diagnosis.PLAN1]);
+            `, [
+                vno,
+                toNull(diagnosis.CHIEF_COMPLAINT),
+                toNull(diagnosis.PRESENT_ILL),
+                toNull(diagnosis.PHYSICAL_EXAM),
+                toNull(diagnosis.PLAN1)
+            ]);
         }
 
-        // Handle drugs
-        if (drugs && drugs.length > 0) {
+        // Handle drugs - Convert undefined values to null or defaults
+        if (drugs && Array.isArray(drugs) && drugs.length > 0) {
             // ลบยาเก่าทั้งหมด
             await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
 
@@ -602,45 +620,44 @@ router.put('/:vno', async (req, res) => {
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     `, [
                         vno,
-                        drug.DRUG_CODE,
-                        drug.QTY || 1,
-                        drug.UNIT_CODE || 'TAB',
-                        drug.UNIT_PRICE || 0,
-                        drug.AMT || 0,
-                        drug.NOTE1 || '',
-                        drug.TIME1 || ''
+                        toNull(drug.DRUG_CODE),
+                        toNull(drug.QTY) || 1,
+                        toNull(drug.UNIT_CODE) || 'TAB',
+                        toNull(drug.UNIT_PRICE) || 0,
+                        toNull(drug.AMT) || 0,
+                        toNull(drug.NOTE1) || '',
+                        toNull(drug.TIME1) || ''
                     ]);
                 }
             }
         }
 
-        // Handle procedures
-        if (procedures && procedures.length > 0) {
+        // Handle procedures - Convert undefined values to null or defaults
+        if (procedures && Array.isArray(procedures) && procedures.length > 0) {
             // ลบหัตถการเก่าทั้งหมด
             await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
 
             // เพิ่มหัตถการใหม่
             for (const proc of procedures) {
                 if (proc.PROCEDURE_CODE || proc.MEDICAL_PROCEDURE_CODE) {
-                    const procedureCode = proc.PROCEDURE_CODE || proc.MEDICAL_PROCEDURE_CODE;
-                    // ใช้ชื่อฟิลด์ที่มีอยู่ในตาราง (ลบ DOCTOR_NAME, PROCEDURE_DATE ออก)
+                    const procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE);
                     await connection.execute(`
                         INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
                         VALUES (?, ?, ?, ?, ?, ?)
                     `, [
                         vno,
                         procedureCode,
-                        proc.QTY || 1,
-                        proc.UNIT_CODE || 'ครั้ง',
-                        proc.UNIT_PRICE || 0,
-                        proc.AMT || 0
+                        toNull(proc.QTY) || 1,
+                        toNull(proc.UNIT_CODE) || 'ครั้ง',
+                        toNull(proc.UNIT_PRICE) || 0,
+                        toNull(proc.AMT) || 0
                     ]);
                 }
             }
         }
 
-        // Handle lab tests
-        if (labTests && labTests.length > 0) {
+        // Handle lab tests - Convert undefined values to null
+        if (labTests && Array.isArray(labTests) && labTests.length > 0) {
             // ลบ lab tests เก่า
             await connection.execute(`DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?`, [vno]);
 
@@ -649,13 +666,13 @@ router.put('/:vno', async (req, res) => {
                 if (lab.LABCODE) {
                     await connection.execute(`
                         INSERT INTO TREATMENT1_LABORATORY (VNO, LABCODE, NOTE1) VALUES (?, ?, ?)
-                    `, [vno, lab.LABCODE, lab.NOTE1 || '']);
+                    `, [vno, toNull(lab.LABCODE), toNull(lab.NOTE1) || '']);
                 }
             }
         }
 
-        // Handle radiological tests
-        if (radioTests && radioTests.length > 0) {
+        // Handle radiological tests - Convert undefined values to null
+        if (radioTests && Array.isArray(radioTests) && radioTests.length > 0) {
             // ลบ radio tests เก่า
             await connection.execute(`DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?`, [vno]);
 
@@ -664,7 +681,7 @@ router.put('/:vno', async (req, res) => {
                 if (radio.RLCODE) {
                     await connection.execute(`
                         INSERT INTO TREATMENT1_RADIOLOGICAL (VNO, RLCODE, NOTE1) VALUES (?, ?, ?)
-                    `, [vno, radio.RLCODE, radio.NOTE1 || '']);
+                    `, [vno, toNull(radio.RLCODE), toNull(radio.NOTE1) || '']);
                 }
             }
         }
