@@ -1,14 +1,14 @@
 const express = require('express');
 const router = express.Router();
 
-// GET all ICD-10 codes
+// GET all ICD-10 codes - แก้ไขชื่อตารางเป็น TABLE_ICD10
 router.get('/', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { search, page = 1, limit = 50, medical_term } = req.query;
         const offset = (page - 1) * limit;
 
-        let query = 'SELECT * FROM table_icd10 WHERE 1=1';
+        let query = 'SELECT * FROM TABLE_ICD10 WHERE 1=1';
         let params = [];
 
         if (search) {
@@ -22,13 +22,13 @@ router.get('/', async (req, res) => {
             params.push(`%${medical_term}%`);
         }
 
-        query += ' ORDER BY ICD10CODE LIMIT ? OFFSET ?';
-        params.push(parseInt(limit), parseInt(offset));
+        query += ` ORDER BY ICD10CODE LIMIT ${parseInt(limit, 10) || 50} OFFSET ${parseInt(offset, 10) || 0}`;
+
 
         const [rows] = await db.execute(query, params);
 
         // Get total count
-        let countQuery = 'SELECT COUNT(*) as total FROM table_icd10 WHERE 1=1';
+        let countQuery = 'SELECT COUNT(*) as total FROM TABLE_ICD10 WHERE 1=1';
         let countParams = [];
 
         if (search) {
@@ -64,12 +64,12 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET ICD-10 by code
+// GET ICD-10 by code - แก้ไขชื่อตารางเป็น TABLE_ICD10
 router.get('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
-        const [rows] = await db.execute('SELECT * FROM table_icd10 WHERE ICD10CODE = ?', [code]);
+        const [rows] = await db.execute('SELECT * FROM TABLE_ICD10 WHERE ICD10CODE = ?', [code]);
 
         if (rows.length === 0) {
             return res.status(404).json({
@@ -92,7 +92,7 @@ router.get('/:code', async (req, res) => {
     }
 });
 
-// Search ICD-10 by name
+// Search ICD-10 by name - แก้ไขชื่อตารางเป็น TABLE_ICD10
 router.get('/search/:term', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -101,7 +101,7 @@ router.get('/search/:term', async (req, res) => {
 
         const [rows] = await db.execute(`
             SELECT ICD10CODE, ICD10NAME_THAI, ICD10NAME_ENG, MEDICAL_TERM 
-            FROM table_icd10 
+            FROM TABLE_ICD10 
             WHERE ICD10NAME_THAI LIKE ? OR ICD10NAME_ENG LIKE ? OR ICD10CODE LIKE ?
             ORDER BY ICD10NAME_THAI, ICD10CODE
             LIMIT 100
@@ -123,13 +123,13 @@ router.get('/search/:term', async (req, res) => {
     }
 });
 
-// GET ICD-10 by medical term category
+// GET ICD-10 by medical term category - แก้ไขชื่อตารางเป็น TABLE_ICD10
 router.get('/category/:medical_term', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { medical_term } = req.params;
         const [rows] = await db.execute(`
-            SELECT * FROM table_icd10 
+            SELECT * FROM TABLE_ICD10 
             WHERE MEDICAL_TERM LIKE ?
             ORDER BY ICD10CODE
         `, [`%${medical_term}%`]);
@@ -150,7 +150,7 @@ router.get('/category/:medical_term', async (req, res) => {
     }
 });
 
-// GET ICD-10 categories
+// GET ICD-10 categories - แก้ไขชื่อตารางเป็น TABLE_ICD10
 router.get('/categories/list', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -158,7 +158,7 @@ router.get('/categories/list', async (req, res) => {
             SELECT 
                 MEDICAL_TERM,
                 COUNT(*) as count
-            FROM table_icd10 
+            FROM TABLE_ICD10 
             WHERE MEDICAL_TERM IS NOT NULL AND MEDICAL_TERM != ''
             GROUP BY MEDICAL_TERM
             ORDER BY MEDICAL_TERM
@@ -179,7 +179,7 @@ router.get('/categories/list', async (req, res) => {
     }
 });
 
-// POST create new ICD-10
+// POST create new ICD-10 - แก้ไขชื่อตารางเป็น TABLE_ICD10
 router.post('/', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -193,7 +193,7 @@ router.post('/', async (req, res) => {
         }
 
         const [result] = await db.execute(`
-            INSERT INTO table_icd10 (ICD10CODE, ICD10NAME_THAI, ICD10NAME_ENG, MEDICAL_TERM, NOTE1) 
+            INSERT INTO TABLE_ICD10 (ICD10CODE, ICD10NAME_THAI, ICD10NAME_ENG, MEDICAL_TERM, NOTE1) 
             VALUES (?, ?, ?, ?, ?)
         `, [ICD10CODE, ICD10NAME_THAI, ICD10NAME_ENG, MEDICAL_TERM, NOTE1]);
 
@@ -219,7 +219,7 @@ router.post('/', async (req, res) => {
     }
 });
 
-// PUT update ICD-10
+// PUT update ICD-10 - แก้ไขชื่อตารางเป็น TABLE_ICD10
 router.put('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -227,7 +227,7 @@ router.put('/:code', async (req, res) => {
         const { ICD10NAME_THAI, ICD10NAME_ENG, MEDICAL_TERM, NOTE1 } = req.body;
 
         const [result] = await db.execute(`
-            UPDATE table_icd10 SET 
+            UPDATE TABLE_ICD10 SET 
                 ICD10NAME_THAI = ?, ICD10NAME_ENG = ?, MEDICAL_TERM = ?, NOTE1 = ?
             WHERE ICD10CODE = ?
         `, [ICD10NAME_THAI, ICD10NAME_ENG, MEDICAL_TERM, NOTE1, code]);
@@ -254,13 +254,13 @@ router.put('/:code', async (req, res) => {
     }
 });
 
-// DELETE ICD-10
+// DELETE ICD-10 - แก้ไขชื่อตารางเป็น TABLE_ICD10
 router.delete('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
 
-        const [result] = await db.execute('DELETE FROM table_icd10 WHERE ICD10CODE = ?', [code]);
+        const [result] = await db.execute('DELETE FROM TABLE_ICD10 WHERE ICD10CODE = ?', [code]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -290,20 +290,20 @@ router.delete('/:code', async (req, res) => {
     }
 });
 
-// GET ICD-10 statistics
+// GET ICD-10 statistics - แก้ไขชื่อตารางเป็น TABLE_ICD10
 router.get('/stats/summary', async (req, res) => {
     try {
         const db = await require('../config/db');
 
         // Total ICD-10 codes
-        const [totalCount] = await db.execute('SELECT COUNT(*) as total FROM table_icd10');
+        const [totalCount] = await db.execute('SELECT COUNT(*) as total FROM TABLE_ICD10');
 
         // Count by medical term
         const [categoryStats] = await db.execute(`
             SELECT 
                 MEDICAL_TERM,
                 COUNT(*) as count
-            FROM table_icd10 
+            FROM TABLE_ICD10 
             WHERE MEDICAL_TERM IS NOT NULL AND MEDICAL_TERM != ''
             GROUP BY MEDICAL_TERM
             ORDER BY count DESC

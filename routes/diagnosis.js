@@ -1,14 +1,14 @@
 const express = require('express');
 const router = express.Router();
 
-// GET all diagnosis codes
+// GET all diagnosis codes - แก้ไขชื่อตารางเป็น TABLE_DX
 router.get('/', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { search, page = 1, limit = 50 } = req.query;
         const offset = (page - 1) * limit;
 
-        let query = 'SELECT * FROM table_dx WHERE 1=1';
+        let query = 'SELECT * FROM TABLE_DX WHERE 1=1';
         let params = [];
 
         if (search) {
@@ -17,13 +17,13 @@ router.get('/', async (req, res) => {
             params.push(searchTerm, searchTerm, searchTerm);
         }
 
-        query += ' ORDER BY DXCODE LIMIT ? OFFSET ?';
-        params.push(parseInt(limit), parseInt(offset));
+        query += ` ORDER BY DXCODE LIMIT ${parseInt(limit, 10) || 50} OFFSET ${parseInt(offset, 10) || 0}`;
+
 
         const [rows] = await db.execute(query, params);
 
         // Get total count
-        let countQuery = 'SELECT COUNT(*) as total FROM table_dx WHERE 1=1';
+        let countQuery = 'SELECT COUNT(*) as total FROM TABLE_DX WHERE 1=1';
         let countParams = [];
 
         if (search) {
@@ -54,12 +54,12 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET diagnosis by code
+// GET diagnosis by code - แก้ไขชื่อตารางเป็น TABLE_DX
 router.get('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
-        const [rows] = await db.execute('SELECT * FROM table_dx WHERE DXCODE = ?', [code]);
+        const [rows] = await db.execute('SELECT * FROM TABLE_DX WHERE DXCODE = ?', [code]);
 
         if (rows.length === 0) {
             return res.status(404).json({
@@ -82,7 +82,7 @@ router.get('/:code', async (req, res) => {
     }
 });
 
-// Search diagnosis by name
+// Search diagnosis by name - แก้ไขชื่อตารางเป็น TABLE_DX
 router.get('/search/:term', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -90,7 +90,7 @@ router.get('/search/:term', async (req, res) => {
         const searchTerm = `%${term}%`;
 
         const [rows] = await db.execute(`
-            SELECT * FROM table_dx 
+            SELECT * FROM TABLE_DX 
             WHERE DXNAME_ENG LIKE ? OR DXNAME_THAI LIKE ? OR DXCODE LIKE ?
             ORDER BY DXNAME_THAI, DXNAME_ENG
             LIMIT 100
@@ -112,7 +112,7 @@ router.get('/search/:term', async (req, res) => {
     }
 });
 
-// POST create new diagnosis
+// POST create new diagnosis - แก้ไขชื่อตารางเป็น TABLE_DX
 router.post('/', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -126,7 +126,7 @@ router.post('/', async (req, res) => {
         }
 
         const [result] = await db.execute(
-            'INSERT INTO table_dx (DXCODE, DXNAME_ENG, DXNAME_THAI) VALUES (?, ?, ?)',
+            'INSERT INTO TABLE_DX (DXCODE, DXNAME_ENG, DXNAME_THAI) VALUES (?, ?, ?)',
             [DXCODE, DXNAME_ENG, DXNAME_THAI]
         );
 
@@ -152,7 +152,7 @@ router.post('/', async (req, res) => {
     }
 });
 
-// PUT update diagnosis
+// PUT update diagnosis - แก้ไขชื่อตารางเป็น TABLE_DX
 router.put('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -160,7 +160,7 @@ router.put('/:code', async (req, res) => {
         const { DXNAME_ENG, DXNAME_THAI } = req.body;
 
         const [result] = await db.execute(
-            'UPDATE table_dx SET DXNAME_ENG = ?, DXNAME_THAI = ? WHERE DXCODE = ?',
+            'UPDATE TABLE_DX SET DXNAME_ENG = ?, DXNAME_THAI = ? WHERE DXCODE = ?',
             [DXNAME_ENG, DXNAME_THAI, code]
         );
 
@@ -186,13 +186,13 @@ router.put('/:code', async (req, res) => {
     }
 });
 
-// DELETE diagnosis
+// DELETE diagnosis - แก้ไขชื่อตารางเป็น TABLE_DX
 router.delete('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
 
-        const [result] = await db.execute('DELETE FROM table_dx WHERE DXCODE = ?', [code]);
+        const [result] = await db.execute('DELETE FROM TABLE_DX WHERE DXCODE = ?', [code]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({

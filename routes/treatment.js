@@ -124,12 +124,12 @@ router.get('/:vno', async (req, res) => {
             });
         }
 
-        // Get diagnosis details - ใช้ตัวใหญ่
+        // Get diagnosis details
         const [diagnosis] = await db.execute(`
             SELECT * FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?
         `, [vno]);
 
-        // Get drugs - ใช้ตัวใหญ่
+        // Get drugs
         const [drugs] = await db.execute(`
             SELECT 
                 td.*,
@@ -143,7 +143,7 @@ router.get('/:vno', async (req, res) => {
             ORDER BY td.DRUG_CODE
         `, [vno]);
 
-        // Get procedures - ใช้ตัวใหญ่
+        // Get procedures
         const [procedures] = await db.execute(`
             SELECT 
                 tmp.*,
@@ -156,7 +156,7 @@ router.get('/:vno', async (req, res) => {
             ORDER BY tmp.MEDICAL_PROCEDURE_CODE
         `, [vno]);
 
-        // Get lab tests - ใช้ตัวใหญ่
+        // Get lab tests
         const [labTests] = await db.execute(`
             SELECT 
                 tl.*,
@@ -167,7 +167,7 @@ router.get('/:vno', async (req, res) => {
             ORDER BY l.LABNAME
         `, [vno]);
 
-        // Get radiological tests - ใช้ตัวใหญ่
+        // Get radiological tests
         const [radioTests] = await db.execute(`
             SELECT 
                 tr.*,
@@ -214,7 +214,7 @@ router.get('/:vno', async (req, res) => {
     }
 });
 
-// GET treatments by patient HN - FIXED with proper table names
+// GET treatments by patient HN
 router.get('/patient/:hn', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -226,9 +226,8 @@ router.get('/patient/:hn', async (req, res) => {
         const pageInt = Math.max(1, parseInt(page, 10) || 1);
         const offset = (pageInt - 1) * limitInt;
 
-        console.log(`🔍 Fetching treatments - HN: ${hn}, Page: ${pageInt}, Limit: ${limitInt}, Offset: ${offset}`);
+        console.log(`Fetching treatments - HN: ${hn}, Page: ${pageInt}, Limit: ${limitInt}, Offset: ${offset}`);
 
-        // ✅ แก้: ใช้ parameterized query สำหรับ hn เท่านั้น, LIMIT/OFFSET ใช้ string formatting
         const [rows] = await db.execute(`
             SELECT 
                 t.VNO, t.RDATE, t.TRDATE, t.STATUS1, t.SYMPTOM, t.TREATMENT1,
@@ -248,7 +247,7 @@ router.get('/patient/:hn', async (req, res) => {
             SELECT COUNT(*) as total FROM TREATMENT1 WHERE HNNO = ?
         `, [hn]);
 
-        console.log(`✅ Found ${rows.length} treatments for patient ${hn}`);
+        console.log(`Found ${rows.length} treatments for patient ${hn}`);
 
         res.json({
             success: true,
@@ -278,7 +277,6 @@ router.post('/', async (req, res) => {
     const toNull = (value) => value === undefined ? null : value;
 
     try {
-        // Get connection from pool และเริ่ม transaction
         connection = await db.getConnection();
         await connection.beginTransaction();
 
@@ -287,15 +285,10 @@ router.post('/', async (req, res) => {
             RR1, PR1, SPO2, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1,
             APPOINTMENT_DATE, APPOINTMENT_TDATE, EMP_CODE, EMP_CODE1,
             STATUS1 = 'ทำงานอยู่',
-            // Diagnosis details
             diagnosis,
-            // Drugs
             drugs = [],
-            // Procedures
             procedures = [],
-            // Lab tests
             labTests = [],
-            // Radiological tests
             radioTests = []
         } = req.body;
 
@@ -306,7 +299,7 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // Insert main treatment - ใช้ตัวใหญ่
+        // Insert main treatment
         await connection.execute(`
             INSERT INTO TREATMENT1 (
                 VNO, HNNO, RDATE, TRDATE, WEIGHT1, HIGHT1, BT1, BP1, BP2, 
@@ -323,7 +316,7 @@ router.post('/', async (req, res) => {
             toNull(EMP_CODE), toNull(EMP_CODE1), toNull(STATUS1)
         ]);
 
-        // Insert diagnosis if provided - ใช้ตัวใหญ่
+        // Insert diagnosis if provided
         if (diagnosis && (diagnosis.CHIEF_COMPLAINT || diagnosis.PRESENT_ILL || diagnosis.PHYSICAL_EXAM || diagnosis.PLAN1)) {
             await connection.execute(`
                 INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
@@ -331,7 +324,7 @@ router.post('/', async (req, res) => {
             `, [VNO, diagnosis.CHIEF_COMPLAINT, diagnosis.PRESENT_ILL, diagnosis.PHYSICAL_EXAM, diagnosis.PLAN1]);
         }
 
-        // Insert drugs - ใช้ตัวใหญ่
+        // Insert drugs
         for (const drug of drugs) {
             if (drug.DRUG_CODE) {
                 await connection.execute(`
@@ -341,7 +334,7 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // Insert procedures - ใช้ตัวใหญ่
+        // Insert procedures
         for (const proc of procedures) {
             if (proc.MEDICAL_PROCEDURE_CODE) {
                 await connection.execute(`
@@ -351,7 +344,7 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // Insert lab tests - ใช้ตัวใหญ่
+        // Insert lab tests - FIXED: ลบ NOTE1 ออก
         for (const lab of labTests) {
             if (lab.LABCODE) {
                 await connection.execute(`
@@ -360,16 +353,15 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // Insert radiological tests - ใช้ตัวใหญ่
+        // Insert radiological tests - FIXED: ลบ NOTE1 ออก
         for (const radio of radioTests) {
             if (radio.RLCODE) {
                 await connection.execute(`
-                    INSERT INTO TREATMENT1_RADIOLOGICAL (VNO, RLCODE, NOTE1) VALUES (?, ?, ?)
-                `, [VNO, radio.RLCODE, radio.NOTE1]);
+                    INSERT INTO TREATMENT1_RADIOLOGICAL (VNO, RLCODE) VALUES (?, ?)
+                `, [VNO, radio.RLCODE]);
             }
         }
 
-        // Commit transaction
         await connection.commit();
 
         res.status(201).json({
@@ -379,7 +371,6 @@ router.post('/', async (req, res) => {
         });
 
     } catch (error) {
-        // Rollback transaction if error occurs
         if (connection) {
             try {
                 await connection.rollback();
@@ -408,7 +399,6 @@ router.post('/', async (req, res) => {
             });
         }
     } finally {
-        // Release connection back to pool
         if (connection) {
             connection.release();
         }
@@ -478,17 +468,14 @@ router.get('/stats/summary', async (req, res) => {
             params = [date_to];
         }
 
-        // Total treatments - ใช้ตัวใหญ่
         const [totalCount] = await db.execute(`SELECT COUNT(*) as total FROM TREATMENT1 ${dateFilter}`, params);
 
-        // Treatments by status - ใช้ตัวใหญ่
         const [statusStats] = await db.execute(`
             SELECT STATUS1, COUNT(*) as count 
             FROM TREATMENT1 ${dateFilter}
             GROUP BY STATUS1
         `, params);
 
-        // Treatments by doctor - ใช้ตัวใหญ่
         const [doctorStats] = await db.execute(`
             SELECT 
                 e.EMP_NAME,
@@ -501,7 +488,6 @@ router.get('/stats/summary', async (req, res) => {
             LIMIT 10
         `, params);
 
-        // Most common diagnoses - ใช้ตัวใหญ่
         const [diagnosisStats] = await db.execute(`
             SELECT 
                 dx.DXNAME_THAI,
@@ -540,11 +526,9 @@ router.put('/:vno', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
 
-    // Helper function to convert undefined to null
     const toNull = (value) => value === undefined ? null : value;
 
     try {
-        // Get connection from pool และเริ่ม transaction
         connection = await db.getConnection();
         await connection.beginTransaction();
 
@@ -554,15 +538,17 @@ router.put('/:vno', async (req, res) => {
             labTests = [], radioTests = [], DXCODE, ICD10CODE, TREATMENT1
         } = req.body;
 
-        console.log(`🔄 Updating treatment ${vno}:`, {
+        console.log(`Updating treatment ${vno}:`, {
             SYMPTOM: toNull(SYMPTOM),
             STATUS1: toNull(STATUS1),
             diagnosis: toNull(diagnosis),
             drugsCount: drugs.length,
-            proceduresCount: procedures.length
+            proceduresCount: procedures.length,
+            labTestsCount: labTests.length,
+            radioTestsCount: radioTests.length
         });
 
-        // Update main treatment - Convert all undefined values to null
+        // Update main treatment
         const [updateResult] = await connection.execute(`
             UPDATE TREATMENT1 SET 
                 SYMPTOM = ?, 
@@ -588,7 +574,7 @@ router.put('/:vno', async (req, res) => {
             });
         }
 
-        // Update/Insert diagnosis - Handle undefined values
+        // Update/Insert diagnosis
         if (diagnosis && typeof diagnosis === 'object') {
             await connection.execute(`
                 INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
@@ -607,12 +593,10 @@ router.put('/:vno', async (req, res) => {
             ]);
         }
 
-        // Handle drugs - Convert undefined values to null or defaults
+        // Handle drugs
         if (drugs && Array.isArray(drugs) && drugs.length > 0) {
-            // ลบยาเก่าทั้งหมด
             await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
 
-            // เพิ่มยาใหม่
             for (const drug of drugs) {
                 if (drug.DRUG_CODE) {
                     await connection.execute(`
@@ -632,12 +616,10 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // Handle procedures - Convert undefined values to null or defaults
+        // Handle procedures
         if (procedures && Array.isArray(procedures) && procedures.length > 0) {
-            // ลบหัตถการเก่าทั้งหมด
             await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
 
-            // เพิ่มหัตถการใหม่
             for (const proc of procedures) {
                 if (proc.PROCEDURE_CODE || proc.MEDICAL_PROCEDURE_CODE) {
                     const procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE);
@@ -656,37 +638,32 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // Handle lab tests - Convert undefined values to null
+        // Handle lab tests - FIXED: ลบ NOTE1 ออก
         if (labTests && Array.isArray(labTests) && labTests.length > 0) {
-            // ลบ lab tests เก่า
             await connection.execute(`DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?`, [vno]);
 
-            // เพิ่ม lab tests ใหม่
             for (const lab of labTests) {
                 if (lab.LABCODE) {
                     await connection.execute(`
-                        INSERT INTO TREATMENT1_LABORATORY (VNO, LABCODE, NOTE1) VALUES (?, ?, ?)
-                    `, [vno, toNull(lab.LABCODE), toNull(lab.NOTE1) || '']);
+                        INSERT INTO TREATMENT1_LABORATORY (VNO, LABCODE) VALUES (?, ?)
+                    `, [vno, toNull(lab.LABCODE)]);
                 }
             }
         }
 
-        // Handle radiological tests - Convert undefined values to null
+        // Handle radiological tests - FIXED: ลบ NOTE1 ออก
         if (radioTests && Array.isArray(radioTests) && radioTests.length > 0) {
-            // ลบ radio tests เก่า
             await connection.execute(`DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?`, [vno]);
 
-            // เพิ่ม radio tests ใหม่
             for (const radio of radioTests) {
                 if (radio.RLCODE) {
                     await connection.execute(`
-                        INSERT INTO TREATMENT1_RADIOLOGICAL (VNO, RLCODE, NOTE1) VALUES (?, ?, ?)
-                    `, [vno, toNull(radio.RLCODE), toNull(radio.NOTE1) || '']);
+                        INSERT INTO TREATMENT1_RADIOLOGICAL (VNO, RLCODE) VALUES (?, ?)
+                    `, [vno, toNull(radio.RLCODE)]);
                 }
             }
         }
 
-        // Commit transaction
         await connection.commit();
 
         res.json({
@@ -704,7 +681,6 @@ router.put('/:vno', async (req, res) => {
         });
 
     } catch (error) {
-        // Rollback transaction if error occurs
         if (connection) {
             try {
                 await connection.rollback();
@@ -720,7 +696,6 @@ router.put('/:vno', async (req, res) => {
             error: error.message
         });
     } finally {
-        // Release connection back to pool
         if (connection) {
             connection.release();
         }
