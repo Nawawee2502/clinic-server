@@ -6,33 +6,13 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // Middleware
 app.use(morgan('combined')); // HTTP request logger
 
-// ========= แก้ไข CORS Configuration =========
-// const corsOption = {
-//     origin: [
-//         "http://localhost:3002",   // Frontend
-//         "http://127.0.0.1:3002",
-//         "http://localhost:3001",   // Backend  
-//         "http://127.0.0.1:3001"
-//     ],
-//     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // เพิ่ม OPTIONS
-//     credentials: true,
-//     optionsSuccessStatus: 200,
-//     allowedHeaders: [
-//         'Origin',
-//         'X-Requested-With',
-//         'Content-Type',
-//         'Accept',
-//         'Authorization',
-//         'Cache-Control'
-//     ]
-// };
-
+// CORS Configuration
 const corsOption = {
     origin: true, // อนุญาตทุก origin
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -48,16 +28,11 @@ const corsOption = {
     ]
 };
 
-
-
-// ใช้ CORS middleware ก่อน routes อื่นๆ
 app.use(cors(corsOption));
-
-// Handle preflight requests
 app.options('*', cors(corsOption));
 
-app.use(express.json({ limit: '50mb' })); // Parse JSON bodies
-app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-encoded bodies
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Static files setup
 const publicPath = path.join(__dirname, 'public');
@@ -86,100 +61,86 @@ app.get('/', (req, res) => {
         version: '1.0.0',
         timestamp: new Date().toISOString(),
         cors_enabled: true,
-        allowed_origins: corsOption.origin,
-        endpoints: {
-            // Location APIs
-            provinces: '/api/provinces',
-            amphers: '/api/amphers',
-            tumbols: '/api/tumbols',
+        status: 'running',
+        environment: process.env.NODE_ENV || 'development',
+        port: PORT,
+        host: HOST
+    });
+});
 
-            // Patient API
-            patients: '/api/patients',
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+    res.json({
+        success: true,
+        message: 'API is healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        version: '1.0.0'
+    });
+});
 
-            // Medical Staff & Resources
-            employees: '/api/employees',
-            drugs: '/api/drugs',
-            procedures: '/api/procedures',
+// Test endpoint
+app.get('/api/test', (req, res) => {
+    res.json({
+        success: true,
+        message: 'Test endpoint working',
+        timestamp: new Date().toISOString(),
+        method: req.method,
+        url: req.url,
+        headers: req.headers
+    });
+});
 
-            // Medical Coding
-            diagnosis: '/api/diagnosis',
-            icd10: '/api/icd10',
+// Simple API routes (without database)
+app.get('/api', (req, res) => {
+    res.json({
+        success: true,
+        message: 'API endpoint working',
+        available_endpoints: [
+            'GET /api/health - Health check',
+            'GET /api/test - Test endpoint',
+            'GET /api/status - Server status'
+        ]
+    });
+});
 
-            // Laboratory & Radiology
-            lab: '/api/lab',
-            radiological: '/api/radiological',
-            ix: '/api/ix',
-
-            // Treatment (Main)
-            treatments: '/api/treatments',
-
-            // Appointment & Queue
-            appointments: '/api/appointments',
-            queue: '/api/queue',
-
-            // Utilities
-            units: '/api/units',
-            packages: '/api/packages',
-
-            // System
-            health: '/api/health',
-            test: '/api/test',
-            docs: '/api/docs'
-        }
+app.get('/api/status', (req, res) => {
+    res.json({
+        success: true,
+        server_status: 'running',
+        timestamp: new Date().toISOString(),
+        uptime: `${Math.floor(process.uptime())} seconds`,
+        node_version: process.version,
+        platform: process.platform,
+        memory_usage: process.memoryUsage(),
+        environment: process.env.NODE_ENV || 'development'
     });
 });
 
 // Initialize database and start server
 async function startServer() {
     try {
-        // Wait for database connection
+        console.log('🔧 Starting simplified server...');
+        
+        // Comment out database connection for now to prevent crashes
+        /*
         console.log('🔧 Initializing database connection...');
         const db = await require('./config/db');
         console.log('✅ Database connection established successfully');
 
         // Import API router
         const apiRouter = require('./routes/router');
-
         // Mount API routes
         app.use('/api', apiRouter);
+        */
+        
+        console.log('⚠️  Database connection disabled for testing');
+        console.log('⚠️  Full API routes disabled for testing');
 
         // Global error handling middleware
         app.use((err, req, res, next) => {
             console.error('Server error:', err);
-
-            // Handle specific database errors
-            if (err.code === 'ER_DUP_ENTRY') {
-                return res.status(409).json({
-                    success: false,
-                    error: 'Duplicate Entry',
-                    message: 'ข้อมูลที่ส่งมามีอยู่แล้วในระบบ'
-                });
-            }
-
-            if (err.code === 'ER_NO_REFERENCED_ROW_2') {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Foreign Key Constraint',
-                    message: 'ไม่พบข้อมูลอ้างอิงที่ระบุ'
-                });
-            }
-
-            if (err.code === 'ER_ROW_IS_REFERENCED_2') {
-                return res.status(409).json({
-                    success: false,
-                    error: 'Referenced Data',
-                    message: 'ไม่สามารถลบได้เนื่องจากมีข้อมูลอื่นที่เชื่อมโยงอยู่'
-                });
-            }
-
-            // Handle MySQL connection errors
-            if (err.code === 'ECONNREFUSED' || err.code === 'ER_ACCESS_DENIED_ERROR') {
-                return res.status(503).json({
-                    success: false,
-                    error: 'Database Connection Error',
-                    message: 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้'
-                });
-            }
 
             // Default error response
             res.status(500).json({
@@ -196,12 +157,13 @@ async function startServer() {
                 success: false,
                 error: 'Not Found',
                 message: `ไม่พบ API endpoint: ${req.method} ${req.originalUrl}`,
-                suggestion: 'ลองตรวจสอบ URL หรือดู API documentation ที่ /api/docs',
+                suggestion: 'ลองตรวจสอบ URL หรือดู API documentation',
                 availableEndpoints: {
                     root: '/',
                     health: '/api/health',
                     test: '/api/test',
-                    docs: '/api/docs'
+                    status: '/api/status',
+                    api: '/api'
                 }
             });
         });
@@ -209,44 +171,25 @@ async function startServer() {
         // Start server
         const server = app.listen(PORT, HOST, () => {
             console.log('\n🏥 =======================================');
-            console.log('🏥 CLINIC MANAGEMENT SYSTEM - SERVER');
+            console.log('🏥 CLINIC MANAGEMENT SYSTEM - SIMPLE SERVER');
             console.log('🏥 =======================================');
             console.log(`🌐 Server URL: http://${HOST}:${PORT}`);
             console.log(`🌐 Local URL: http://localhost:${PORT}`);
             console.log(`📱 API Base: http://${HOST}:${PORT}/api`);
             console.log(`🔍 Test URL: http://${HOST}:${PORT}/api/test`);
             console.log(`❤️  Health: http://${HOST}:${PORT}/api/health`);
-            console.log(`📚 Docs: http://${HOST}:${PORT}/api/docs`);
+            console.log(`📊 Status: http://${HOST}:${PORT}/api/status`);
             console.log(`⚡ Environment: ${process.env.NODE_ENV || 'development'}`);
             console.log(`📁 Public Path: ${publicPath}`);
             console.log(`🌐 CORS Origins: All origins allowed (*)`);
-            console.log('\n📋 Available API Endpoints:');
-            console.log('   📍 Location APIs:');
-            console.log('      GET  /api/provinces');
-            console.log('      GET  /api/amphers');
-            console.log('      GET  /api/tumbols');
-            console.log('\n   👥 Patient & Staff APIs:');
-            console.log('      GET  /api/patients');
-            console.log('      GET  /api/employees');
-            console.log('\n   💊 Medical Resources APIs:');
-            console.log('      GET  /api/drugs');
-            console.log('      GET  /api/procedures');
-            console.log('      GET  /api/diagnosis');
-            console.log('      GET  /api/icd10');
-            console.log('\n   🔬 Laboratory & Testing APIs:');
-            console.log('      GET  /api/lab');
-            console.log('      GET  /api/radiological');
-            console.log('      GET  /api/ix');
-            console.log('\n   🏥 Treatment & Appointment APIs:');
-            console.log('      GET  /api/treatments');
-            console.log('      GET  /api/appointments');
-            console.log('      GET  /api/queue');
-            console.log('\n   ⚙️  Utility APIs:');
-            console.log('      GET  /api/units');
-            console.log('      GET  /api/packages');
-            console.log('\n🌐 CORS enabled for development origins');
-            console.log('🔍 Request logging enabled');
-            console.log('📚 Full API documentation available at /api/docs');
+            console.log('\n📋 Available Test Endpoints:');
+            console.log('   🏠 Root: GET /');
+            console.log('   📱 API: GET /api');
+            console.log('   ❤️  Health: GET /api/health');
+            console.log('   🔍 Test: GET /api/test');
+            console.log('   📊 Status: GET /api/status');
+            console.log('\n⚠️  Database and full API routes disabled for testing');
+            console.log('🔍 Once basic server works, uncomment database code');
             console.log('🏥 =======================================\n');
         });
 
@@ -280,7 +223,7 @@ async function startServer() {
 
     } catch (error) {
         console.error('💥 Failed to start server:', error.message);
-        console.error('💡 Please check your database configuration and connection');
+        console.error('💡 Check the error details above');
         process.exit(1);
     }
 }
@@ -288,11 +231,7 @@ async function startServer() {
 // Start the server
 startServer();
 
-// module.exports = app;
+// deploy at 0409
 
-// Export for Vercel
-if (process.env.NODE_ENV === 'production') {
-    module.exports = app;
-} else {
-    module.exports = app;
-}
+// Export for production
+module.exports = app;
