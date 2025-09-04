@@ -1,4 +1,4 @@
-// routes/queue.js
+// routes/queue.js - แก้ไขแล้ว: ไม่สร้าง TREATMENT1 ตอนสร้างคิว
 const express = require('express');
 const router = express.Router();
 
@@ -24,7 +24,7 @@ router.get('/today', async (req, res) => {
                 p.AGE,
                 p.SEX,
                 p.TEL1,
-                -- VN ถ้ามี
+                -- VN ถ้ามี (เช็คจาก TREATMENT1)
                 t.VNO,
                 t.STATUS1 as TREATMENT_STATUS
             FROM DAILY_QUEUE dq
@@ -60,7 +60,7 @@ router.get('/appointments/today', async (req, res) => {
                 a.APPOINTMENT_TIME,
                 a.REASON,
                 a.STATUS,
-                a.VN_NUMBER, -- ✅ เพิ่ม VN_NUMBER
+                a.VN_NUMBER,
                 a.CREATED_AT,
                 -- ข้อมูลผู้ป่วย
                 p.HNCODE,
@@ -96,14 +96,13 @@ router.get('/appointments/today', async (req, res) => {
     }
 });
 
-// POST create walk-in queue - สร้างคิว walk-in
+// 🔥 แก้ไข: POST create walk-in queue - สร้างแค่คิว ไม่สร้าง TREATMENT1
 router.post('/create', async (req, res) => {
     const dbPool = await require('../config/db');
     let connection = null;
 
     try {
         const { HNCODE, CHIEF_COMPLAINT, CREATED_BY } = req.body;
-        // ✅ ไม่รับ VNO จาก Frontend แล้ว เพราะจะสร้างใหม่
 
         if (!HNCODE) {
             return res.status(400).json({
@@ -127,22 +126,6 @@ router.post('/create', async (req, res) => {
             });
         }
 
-        // ✅ สร้าง VN Number ใหม่ที่ถูกต้อง
-        const today = new Date();
-        const buddhistYear = (today.getFullYear() + 543).toString().slice(-2); // 68
-        const month = String(today.getMonth() + 1).padStart(2, '0'); // 08
-        const day = String(today.getDate()).padStart(2, '0'); // 15
-
-        // หาเลขรันนิ่งถัดไป (จากจำนวน VN ที่มีวันนี้)
-        const [vnCount] = await connection.execute(`
-            SELECT COUNT(*) + 1 as next_number
-            FROM TREATMENT1 
-            WHERE VNO LIKE ? AND DATE(SYSTEM_DATE) = CURDATE()
-        `, [`VN${buddhistYear}${month}${day}%`]);
-
-        const runningNumber = vnCount[0].next_number.toString().padStart(3, '0');
-        const vnNumber = `VN${buddhistYear}${month}${day}${runningNumber}`;
-
         // หาหมายเลขคิวถัดไป
         const [queueCheck] = await connection.execute(`
             SELECT COALESCE(MAX(QUEUE_NUMBER), 0) + 1 as next_number
@@ -151,17 +134,12 @@ router.post('/create', async (req, res) => {
         `);
 
         const nextQueueNumber = queueCheck[0].next_number;
+        const today = new Date();
         const queueId = `Q${today.toISOString().split('T')[0].replace(/-/g, '')}${nextQueueNumber.toString().padStart(3, '0')}`;
 
         await connection.beginTransaction();
 
-        // สร้าง TREATMENT1 record
-        await connection.execute(`
-            INSERT INTO TREATMENT1 (VNO, HNNO, RDATE, STATUS1, SYSTEM_DATE, SYSTEM_TIME, QUEUE_ID)
-            VALUES (?, ?, CURDATE(), 'รอตรวจ', CURDATE(), CURTIME(), ?)
-        `, [vnNumber, HNCODE, queueId]);
-
-        // สร้างคิว
+        // ✅ สร้างแค่คิว ไม่สร้าง TREATMENT1 (ให้หน้าตรวจรักษาสร้างเอง)
         await connection.execute(`
             INSERT INTO DAILY_QUEUE (
                 QUEUE_ID, HNCODE, QUEUE_DATE, QUEUE_NUMBER, QUEUE_TIME, 
@@ -176,7 +154,7 @@ router.post('/create', async (req, res) => {
             message: 'สร้างคิวสำเร็จ',
             data: {
                 QUEUE_ID: queueId,
-                VNO: vnNumber, // ✅ VN Number ใหม่ รูปแบบ VN680815001
+                VNO: null, // ✅ จะสร้างทีหลังเมื่อเริ่มตรวจ
                 QUEUE_NUMBER: nextQueueNumber,
                 HNCODE: HNCODE,
                 PATIENT_NAME: `${patientCheck[0].PRENAME}${patientCheck[0].NAME1} ${patientCheck[0].SURNAME}`,
@@ -206,8 +184,7 @@ router.post('/create', async (req, res) => {
     }
 });
 
-
-// POST appointment check-in - เช็คอินจากนัดหมาย
+// 🔥 แก้ไข: POST appointment check-in - สร้างแค่คิว ไม่สร้าง TREATMENT1
 router.post('/checkin', async (req, res) => {
     const dbPool = await require('../config/db');
     let connection = null;
@@ -253,18 +230,9 @@ router.post('/checkin', async (req, res) => {
         const nextQueueNumber = queueCheck[0].next_number;
         const queueId = `Q${new Date().toISOString().split('T')[0].replace(/-/g, '')}${nextQueueNumber.toString().padStart(3, '0')}`;
 
-        // ✅ ใช้ VN_NUMBER จากนัดหมาย (ที่เป็น พ.ศ. แล้ว)
-        const vnNumber = appointment.VN_NUMBER;
-
         await connection.beginTransaction();
 
-        // สร้าง TREATMENT1 record
-        await connection.execute(`
-            INSERT INTO TREATMENT1 (VNO, HNNO, RDATE, STATUS1, SYSTEM_DATE, SYSTEM_TIME, QUEUE_ID)
-            VALUES (?, ?, CURDATE(), 'รอตรวจ', CURDATE(), CURTIME(), ?)
-        `, [vnNumber, appointment.HNCODE, queueId]); // ✅ ใช้ VN จากนัดหมาย
-
-        // สร้างคิวจากนัดหมาย
+        // ✅ สร้างแค่คิวจากนัดหมาย ไม่สร้าง TREATMENT1
         await connection.execute(`
             INSERT INTO DAILY_QUEUE (
                 QUEUE_ID, HNCODE, QUEUE_DATE, QUEUE_NUMBER, QUEUE_TIME, 
@@ -286,7 +254,7 @@ router.post('/checkin', async (req, res) => {
             message: 'เช็คอินสำเร็จ',
             data: {
                 QUEUE_ID: queueId,
-                VNO: vnNumber, // ✅ ส่ง VN Number ที่ถูกต้อง
+                VNO: appointment.VN_NUMBER, // ✅ ส่ง VN จากนัดหมายไปก่อน แต่จะสร้าง TREATMENT1 ทีหลัง
                 QUEUE_NUMBER: nextQueueNumber,
                 HNCODE: appointment.HNCODE,
                 PATIENT_NAME: `${appointment.PRENAME}${appointment.NAME1} ${appointment.SURNAME}`,
@@ -334,7 +302,6 @@ router.put('/:queueId/status', async (req, res) => {
             });
         }
 
-        // Get connection from pool
         connection = await dbPool.getConnection();
         await connection.beginTransaction();
 
@@ -351,7 +318,7 @@ router.put('/:queueId/status', async (req, res) => {
             });
         }
 
-        // อัปเดตสถานะใน TREATMENT1 ด้วย
+        // อัปเดตสถานะใน TREATMENT1 ด้วย (ถ้ามี)
         await connection.execute(
             'UPDATE TREATMENT1 SET STATUS1 = ? WHERE QUEUE_ID = ?',
             [status, queueId]
@@ -387,7 +354,6 @@ router.put('/:queueId/status', async (req, res) => {
     }
 });
 
-
 // DELETE remove queue - ลบคิว (กรณีผู้ป่วยไม่มา)
 router.delete('/:queueId', async (req, res) => {
     const dbPool = await require('../config/db');
@@ -396,11 +362,10 @@ router.delete('/:queueId', async (req, res) => {
     try {
         const { queueId } = req.params;
 
-        // Get connection from pool
         connection = await dbPool.getConnection();
         await connection.beginTransaction();
 
-        // ลบ TREATMENT1 record
+        // ลบ TREATMENT1 record (ถ้ามี)
         await connection.execute('DELETE FROM TREATMENT1 WHERE QUEUE_ID = ?', [queueId]);
 
         // ลบคิว
@@ -486,7 +451,7 @@ router.get('/stats', async (req, res) => {
         console.error('Error fetching queue statistics:', error);
         res.status(500).json({
             success: false,
-            message: 'เกิดข้อผิดพลาดในการดึงสถิติคิว',
+            message: 'เกิดข้อผิดพลาดในการดึงสถิติคิู',
             error: error.message
         });
     }
