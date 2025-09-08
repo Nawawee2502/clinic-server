@@ -1,6 +1,35 @@
 const express = require('express');
 const router = express.Router();
 
+const ensureProcedureExists = async (connection, procedureCode, procedureName) => {
+    try {
+        // ตัดรหัสให้สั้นลงถ้ายาวเกินไป
+        if (procedureCode.length > 15) {
+            procedureCode = procedureCode.substring(0, 15);
+        }
+
+        // ตรวจสอบว่ามีหัตถการนี้อยู่หรือไม่
+        const [existing] = await connection.execute(
+            'SELECT MEDICAL_PROCEDURE_CODE FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ?',
+            [procedureCode]
+        );
+
+        if (existing.length === 0) {
+            // ถ้าไม่มี ให้เพิ่มใหม่
+            await connection.execute(`
+                INSERT INTO TABLE_MEDICAL_PROCEDURES 
+                (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
+                VALUES (?, ?, ?, 'Custom', 0)
+            `, [procedureCode, procedureName.substring(0, 255), procedureName.substring(0, 255)]);
+
+            console.log(`Added new procedure: ${procedureCode} - ${procedureName}`);
+        }
+    } catch (error) {
+        console.error('Error ensuring procedure exists:', error);
+        // ไม่ throw error เพื่อไม่ให้กระทบการทำงาน
+    }
+};
+
 // GET all treatments with filters
 router.get('/', async (req, res) => {
     try {
@@ -434,7 +463,6 @@ router.put('/:vno', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
 
-    // แปลง undefined หรือ empty string เป็น null
     const toNull = (value) => {
         if (value === undefined || value === null || value === '') {
             return null;
@@ -448,9 +476,7 @@ router.put('/:vno', async (req, res) => {
 
         const { vno } = req.params;
         const {
-            // จาก DxandTreatment component
             VNO, HNNO, DXCODE, ICD10CODE, TREATMENT1, STATUS1,
-            // จาก Diagnosis component (เดิม)
             SYMPTOM, diagnosis, drugs = [], procedures = [],
             labTests = [], radioTests = [], INVESTIGATION_NOTES
         } = req.body;
@@ -471,7 +497,7 @@ router.put('/:vno', async (req, res) => {
             radioTestsCount: radioTests.length
         });
 
-        // Update main treatment - รองรับทั้งสอง format
+        // Update main treatment
         const [updateResult] = await connection.execute(`
             UPDATE TREATMENT1 SET 
                 SYMPTOM = COALESCE(?, SYMPTOM), 
@@ -499,7 +525,7 @@ router.put('/:vno', async (req, res) => {
             });
         }
 
-        // Update/Insert diagnosis (ถ้ามีข้อมูล diagnosis)
+        // Update/Insert diagnosis
         if (diagnosis && typeof diagnosis === 'object') {
             await connection.execute(`
                 INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
@@ -518,7 +544,7 @@ router.put('/:vno', async (req, res) => {
             ]);
         }
 
-        // Handle drugs (ถ้ามีข้อมูล drugs)
+        // Handle drugs
         if (drugs && Array.isArray(drugs) && drugs.length > 0) {
             await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
 
@@ -541,29 +567,95 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // Handle procedures (ถ้ามีข้อมูล procedures)
+        // Handle procedures - ปรับปรุงให้รองรับ freestyle procedures
         if (procedures && Array.isArray(procedures) && procedures.length > 0) {
             await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
 
             for (const proc of procedures) {
-                if (proc.PROCEDURE_CODE || proc.MEDICAL_PROCEDURE_CODE) {
-                    const procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE);
-                    await connection.execute(`
-                        INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    `, [
-                        vno,
-                        procedureCode,
-                        toNull(proc.QTY) || 1,
-                        toNull(proc.UNIT_CODE) || 'ครั้ง',
-                        toNull(proc.UNIT_PRICE) || 0,
-                        toNull(proc.AMT) || 0
-                    ]);
+                let procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE);
+                const procedureName = toNull(proc.PROCEDURE_NAME) || 'หัตถการที่ไม่ระบุชื่อ';
+
+                if (procedureCode) {
+                    // ตัดรหัสให้สั้นลงถ้ายาวเกินไป
+                    if (procedureCode.length > 15) {
+                        procedureCode = procedureCode.substring(0, 15);
+                    }
+
+                    // ตรวจสอบและเตรียม UNIT_CODE ให้ถูกต้อง
+                    let unitCode = toNull(proc.UNIT_CODE) || 'TIMES';
+
+                    // ตรวจสอบว่า unit code มีอยู่จริงหรือไม่
+                    const [unitExists] = await connection.execute(
+                        'SELECT UNIT_CODE FROM TABLE_UNIT WHERE UNIT_CODE = ?',
+                        [unitCode]
+                    );
+
+                    // ถ้าไม่มี ให้ใช้ unit code ที่มีอยู่แล้ว
+                    if (unitExists.length === 0) {
+                        try {
+                            await connection.execute(
+                                'INSERT INTO TABLE_UNIT (UNIT_CODE, UNIT_NAME) VALUES (?, ?)',
+                                [unitCode, 'ครั้ง']
+                            );
+                            console.log(`Added new unit: ${unitCode}`);
+                        } catch (unitError) {
+                            // ถ้าเพิ่มไม่ได้ ให้ใช้ unit code ที่มีอยู่แล้ว
+                            const [firstUnit] = await connection.execute(
+                                'SELECT UNIT_CODE FROM TABLE_UNIT LIMIT 1'
+                            );
+                            unitCode = firstUnit.length > 0 ? firstUnit[0].UNIT_CODE : 'PC';
+                            console.log(`Using existing unit: ${unitCode}`);
+                        }
+                    }
+
+                    // ตรวจสอบและเพิ่มหัตถการใหม่หากจำเป็น
+                    await ensureProcedureExists(connection, procedureCode, procedureName);
+
+                    try {
+                        await connection.execute(`
+                            INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        `, [
+                            vno,
+                            procedureCode,
+                            toNull(proc.QTY) || 1,
+                            unitCode,
+                            toNull(proc.UNIT_PRICE) || 0,
+                            toNull(proc.AMT) || 0
+                        ]);
+                        console.log(`Successfully inserted procedure: ${procedureCode}`);
+                    } catch (procError) {
+                        console.error(`Error inserting procedure ${procedureCode}:`, procError);
+
+                        // ถ้ายังเกิด error ให้สร้างรหัสใหม่ที่สั้นกว่า
+                        if (procError.code === 'ER_NO_REFERENCED_ROW_2' || procError.code === 'ER_DATA_TOO_LONG') {
+                            const timestamp = Date.now().toString().slice(-6);
+                            const newCode = `P${timestamp}`;
+                            console.log(`Creating fallback code: ${newCode}`);
+
+                            await ensureProcedureExists(connection, newCode, procedureName);
+
+                            await connection.execute(`
+                                INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            `, [
+                                vno,
+                                newCode,
+                                toNull(proc.QTY) || 1,
+                                unitCode,
+                                toNull(proc.UNIT_PRICE) || 0,
+                                toNull(proc.AMT) || 0
+                            ]);
+                            console.log(`Successfully inserted fallback procedure: ${newCode}`);
+                        } else {
+                            throw procError; // re-throw ถ้าเป็น error อื่น
+                        }
+                    }
                 }
             }
         }
 
-        // Handle lab tests (ถ้ามีข้อมูล labTests)
+        // Handle lab tests
         if (labTests && Array.isArray(labTests) && labTests.length > 0) {
             await connection.execute(`DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?`, [vno]);
 
@@ -576,7 +668,7 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // Handle radiological tests (ถ้ามีข้อมูล radioTests)
+        // Handle radiological tests
         if (radioTests && Array.isArray(radioTests) && radioTests.length > 0) {
             await connection.execute(`DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?`, [vno]);
 
@@ -701,185 +793,54 @@ router.get('/stats/summary', async (req, res) => {
     }
 });
 
-// PUT update entire treatment
-router.put('/:vno', async (req, res) => {
-    const db = await require('../config/db');
-    let connection = null;
 
-    const toNull = (value) => value === undefined ? null : value;
 
+router.post('/procedures/custom', async (req, res) => {
     try {
-        connection = await db.getConnection();
-        await connection.beginTransaction();
+        const db = await require('../config/db');
+        const { MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG } = req.body;
 
-        const { vno } = req.params;
-        const {
-            SYMPTOM, STATUS1, diagnosis, drugs = [], procedures = [],
-            labTests = [], radioTests = [], DXCODE, ICD10CODE, TREATMENT1
-        } = req.body;
-
-        console.log(`Updating treatment ${vno}:`, {
-            SYMPTOM: toNull(SYMPTOM),
-            STATUS1: toNull(STATUS1),
-            diagnosis: toNull(diagnosis),
-            drugsCount: drugs.length,
-            proceduresCount: procedures.length,
-            labTestsCount: labTests.length,
-            radioTestsCount: radioTests.length
-        });
-
-        // Update main treatment
-        const [updateResult] = await connection.execute(`
-            UPDATE TREATMENT1 SET 
-                SYMPTOM = ?, 
-                STATUS1 = ?,
-                DXCODE = ?,
-                ICD10CODE = ?,
-                TREATMENT1 = ?
-            WHERE VNO = ?
-        `, [
-            toNull(SYMPTOM),
-            toNull(STATUS1),
-            toNull(DXCODE),
-            toNull(ICD10CODE),
-            toNull(TREATMENT1),
-            vno
-        ]);
-
-        if (updateResult.affectedRows === 0) {
-            await connection.rollback();
-            return res.status(404).json({
+        if (!MEDICAL_PROCEDURE_CODE || !MED_PRO_NAME_THAI) {
+            return res.status(400).json({
                 success: false,
-                message: 'ไม่พบข้อมูลการรักษาที่ต้องการอัปเดต'
+                message: 'กรุณาระบุรหัสและชื่อหัตถการ'
             });
         }
 
-        // Update/Insert diagnosis
-        if (diagnosis && typeof diagnosis === 'object') {
-            await connection.execute(`
-                INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
-                VALUES (?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                CHIEF_COMPLAINT = VALUES(CHIEF_COMPLAINT),
-                PRESENT_ILL = VALUES(PRESENT_ILL),
-                PHYSICAL_EXAM = VALUES(PHYSICAL_EXAM),
-                PLAN1 = VALUES(PLAN1)
-            `, [
-                vno,
-                toNull(diagnosis.CHIEF_COMPLAINT),
-                toNull(diagnosis.PRESENT_ILL),
-                toNull(diagnosis.PHYSICAL_EXAM),
-                toNull(diagnosis.PLAN1)
-            ]);
-        }
+        try {
+            await db.execute(`
+                INSERT INTO TABLE_MEDICAL_PROCEDURES 
+                (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
+                VALUES (?, ?, ?, 'Custom', 0)
+            `, [MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG || MED_PRO_NAME_THAI]);
 
-        // Handle drugs
-        if (drugs && Array.isArray(drugs) && drugs.length > 0) {
-            await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
-
-            for (const drug of drugs) {
-                if (drug.DRUG_CODE) {
-                    await connection.execute(`
-                        INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    `, [
-                        vno,
-                        toNull(drug.DRUG_CODE),
-                        toNull(drug.QTY) || 1,
-                        toNull(drug.UNIT_CODE) || 'TAB',
-                        toNull(drug.UNIT_PRICE) || 0,
-                        toNull(drug.AMT) || 0,
-                        toNull(drug.NOTE1) || '',
-                        toNull(drug.TIME1) || ''
-                    ]);
-                }
+            res.status(201).json({
+                success: true,
+                message: 'เพิ่มหัตถการใหม่สำเร็จ',
+                data: { MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI }
+            });
+        } catch (dbError) {
+            if (dbError.code === 'ER_DUP_ENTRY') {
+                // ถ้ามีอยู่แล้วก็ส่งกลับว่า success
+                res.json({
+                    success: true,
+                    message: 'หัตถการนี้มีอยู่แล้ว',
+                    data: { MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI }
+                });
+            } else {
+                throw dbError;
             }
         }
-
-        // Handle procedures
-        if (procedures && Array.isArray(procedures) && procedures.length > 0) {
-            await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
-
-            for (const proc of procedures) {
-                if (proc.PROCEDURE_CODE || proc.MEDICAL_PROCEDURE_CODE) {
-                    const procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE);
-                    await connection.execute(`
-                        INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    `, [
-                        vno,
-                        procedureCode,
-                        toNull(proc.QTY) || 1,
-                        toNull(proc.UNIT_CODE) || 'ครั้ง',
-                        toNull(proc.UNIT_PRICE) || 0,
-                        toNull(proc.AMT) || 0
-                    ]);
-                }
-            }
-        }
-
-        // Handle lab tests - FIXED: ลบ NOTE1 ออก
-        if (labTests && Array.isArray(labTests) && labTests.length > 0) {
-            await connection.execute(`DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?`, [vno]);
-
-            for (const lab of labTests) {
-                if (lab.LABCODE) {
-                    await connection.execute(`
-                        INSERT INTO TREATMENT1_LABORATORY (VNO, LABCODE) VALUES (?, ?)
-                    `, [vno, toNull(lab.LABCODE)]);
-                }
-            }
-        }
-
-        // Handle radiological tests - FIXED: ลบ NOTE1 ออก
-        if (radioTests && Array.isArray(radioTests) && radioTests.length > 0) {
-            await connection.execute(`DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?`, [vno]);
-
-            for (const radio of radioTests) {
-                if (radio.RLCODE) {
-                    await connection.execute(`
-                        INSERT INTO TREATMENT1_RADIOLOGICAL (VNO, RLCODE) VALUES (?, ?)
-                    `, [vno, toNull(radio.RLCODE)]);
-                }
-            }
-        }
-
-        await connection.commit();
-
-        res.json({
-            success: true,
-            message: 'อัปเดตข้อมูลการรักษาสำเร็จ',
-            data: {
-                VNO: vno,
-                updatedItems: {
-                    drugs: drugs.length,
-                    procedures: procedures.length,
-                    labTests: labTests.length,
-                    radioTests: radioTests.length
-                }
-            }
-        });
-
     } catch (error) {
-        if (connection) {
-            try {
-                await connection.rollback();
-            } catch (rollbackError) {
-                console.error('Error rolling back transaction:', rollbackError);
-            }
-        }
-
-        console.error('Error updating treatment:', error);
+        console.error('Error creating custom procedure:', error);
         res.status(500).json({
             success: false,
-            message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลการรักษา',
+            message: 'เกิดข้อผิดพลาดในการเพิ่มหัตถการใหม่',
             error: error.message
         });
-    } finally {
-        if (connection) {
-            connection.release();
-        }
     }
 });
+
+
 
 module.exports = router;
