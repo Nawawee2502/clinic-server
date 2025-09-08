@@ -544,20 +544,34 @@ router.put('/:vno', async (req, res) => {
             ]);
         }
 
-        // Handle drugs
+        // Handle drugs  
         if (drugs && Array.isArray(drugs) && drugs.length > 0) {
             await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
 
             for (const drug of drugs) {
                 if (drug.DRUG_CODE) {
+                    // ตรวจสอบว่า UNIT_CODE มีอยู่ในฐานข้อมูลหรือไม่
+                    let unitCode = toNull(drug.UNIT_CODE) || 'TAB';
+
+                    const [unitExists] = await connection.execute(
+                        'SELECT UNIT_CODE FROM TABLE_UNIT WHERE UNIT_CODE = ?',
+                        [unitCode]
+                    );
+
+                    // ถ้าไม่มี ให้ใช้ TAB แทน
+                    if (unitExists.length === 0) {
+                        console.warn(`Unit code ${unitCode} not found, using TAB instead`);
+                        unitCode = 'TAB';
+                    }
+
                     await connection.execute(`
-                        INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    `, [
+                INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
                         vno,
                         toNull(drug.DRUG_CODE),
                         toNull(drug.QTY) || 1,
-                        toNull(drug.UNIT_CODE) || 'TAB',
+                        unitCode, // ← ใช้ unit code ที่ตรวจสอบแล้ว
                         toNull(drug.UNIT_PRICE) || 0,
                         toNull(drug.AMT) || 0,
                         toNull(drug.NOTE1) || '',
