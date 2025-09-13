@@ -1,11 +1,42 @@
-// routes/queue.js - แก้ไขแล้ว: ไม่สร้าง TREATMENT1 ตอนสร้างคิว
+// routes/queue.js - Complete Fixed Version
 const express = require('express');
 const router = express.Router();
 
-// GET today's queue - ดึงคิววันนี้
+// Function to get Thailand time (UTC+7)
+function getThailandTime() {
+    const now = new Date();
+    // Convert to Thailand timezone
+    const thailandTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+    return thailandTime;
+}
+
+// Function to format date for database (YYYY-MM-DD)
+function formatDateForDB(date) {
+    return date.toISOString().split('T')[0];
+}
+
+// Function to format time for database (HH:MM:SS)
+function formatTimeForDB(date) {
+    return date.toTimeString().split(' ')[0];
+}
+
+// Function to generate Queue ID using Thailand date
+function generateQueueId(queueNumber, date = getThailandTime()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}${month}${day}`;
+    return `Q${dateStr}${String(queueNumber).padStart(3, '0')}`;
+}
+
+// GET today's queue - Using Thailand timezone
 router.get('/today', async (req, res) => {
     try {
         const db = await require('../config/db');
+        const thailandDate = formatDateForDB(getThailandTime());
+
+        console.log(`📅 Fetching queue for Thailand date: ${thailandDate}`);
+
         const [rows] = await db.execute(`
             SELECT 
                 dq.QUEUE_ID,
@@ -16,7 +47,8 @@ router.get('/today', async (req, res) => {
                 dq.CHIEF_COMPLAINT,
                 dq.APPOINTMENT_ID,
                 dq.CREATED_AT,
-                -- ข้อมูลผู้ป่วย
+                dq.QUEUE_DATE,
+                -- Patient data
                 p.HNCODE,
                 p.PRENAME,
                 p.NAME1,
@@ -24,36 +56,48 @@ router.get('/today', async (req, res) => {
                 p.AGE,
                 p.SEX,
                 p.TEL1,
-                -- VN ถ้ามี (เช็คจาก TREATMENT1)
+                -- VN if exists (check from TREATMENT1)
                 t.VNO,
                 t.STATUS1 as TREATMENT_STATUS
             FROM DAILY_QUEUE dq
-            JOIN patient1 p ON CONVERT(dq.HNCODE USING utf8) = CONVERT(p.HNCODE USING utf8)
+            LEFT JOIN patient1 p ON dq.HNCODE = p.HNCODE
             LEFT JOIN TREATMENT1 t ON dq.QUEUE_ID = t.QUEUE_ID
-            WHERE dq.QUEUE_DATE = CURDATE()
+            WHERE DATE(dq.QUEUE_DATE) = ?
             ORDER BY dq.QUEUE_NUMBER
-        `);
+        `, [thailandDate]);
+
+        console.log(`📊 Found ${rows.length} queue items`);
 
         res.json({
             success: true,
             data: rows,
             count: rows.length,
-            date: new Date().toISOString().split('T')[0]
+            date: thailandDate,
+            thailandTime: getThailandTime().toISOString(),
+            serverTime: new Date().toISOString()
         });
     } catch (error) {
-        console.error('Error fetching today queue:', error);
+        console.error('Error fetching today queue:', {
+            message: error.message,
+            code: error.code,
+            sqlMessage: error.sqlMessage
+        });
+
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูลคิววันนี้',
-            error: error.message
+            error: error.message,
+            errorCode: error.code
         });
     }
 });
 
-// GET today's appointments - ดึงนัดหมายวันนี้
+// GET today's appointments
 router.get('/appointments/today', async (req, res) => {
     try {
         const db = await require('../config/db');
+        const thailandDate = formatDateForDB(getThailandTime());
+
         const [rows] = await db.execute(`
             SELECT 
                 a.APPOINTMENT_ID,
@@ -62,7 +106,7 @@ router.get('/appointments/today', async (req, res) => {
                 a.STATUS,
                 a.VN_NUMBER,
                 a.CREATED_AT,
-                -- ข้อมูลผู้ป่วย
+                -- Patient data
                 p.HNCODE,
                 p.PRENAME,
                 p.NAME1,
@@ -70,21 +114,21 @@ router.get('/appointments/today', async (req, res) => {
                 p.AGE,
                 p.SEX,
                 p.TEL1,
-                -- ข้อมูลหมอ
+                -- Doctor data
                 doc.EMP_NAME as DOCTOR_NAME
             FROM APPOINTMENT_SCHEDULE a
-            JOIN patient1 p ON CONVERT(a.HNCODE USING utf8) = CONVERT(p.HNCODE USING utf8)
-            LEFT JOIN EMPLOYEE1 doc ON CONVERT(a.DOCTOR_CODE USING utf8) = CONVERT(doc.EMP_CODE USING utf8)
-            WHERE a.APPOINTMENT_DATE = CURDATE()
+            LEFT JOIN patient1 p ON a.HNCODE = p.HNCODE
+            LEFT JOIN EMPLOYEE1 doc ON a.DOCTOR_CODE = doc.EMP_CODE
+            WHERE DATE(a.APPOINTMENT_DATE) = ?
               AND a.STATUS IN ('นัดไว้', 'ยกเลิก')
             ORDER BY a.APPOINTMENT_TIME
-        `);
+        `, [thailandDate]);
 
         res.json({
             success: true,
             data: rows,
             count: rows.length,
-            date: new Date().toISOString().split('T')[0]
+            date: thailandDate
         });
     } catch (error) {
         console.error('Error fetching today appointments:', error);
@@ -96,95 +140,194 @@ router.get('/appointments/today', async (req, res) => {
     }
 });
 
-// 🔥 แก้ไข: POST create walk-in queue - สร้างแค่คิว ไม่สร้าง TREATMENT1
+// POST create walk-in queue - Fixed version
 router.post('/create', async (req, res) => {
+    console.log('🚀 Queue creation started');
+    console.log('📥 Request body:', req.body);
+    console.log('🕐 Server time:', new Date().toISOString());
+    console.log('🇹🇭 Thailand time:', getThailandTime().toISOString());
+
     const dbPool = await require('../config/db');
     let connection = null;
 
     try {
         const { HNCODE, CHIEF_COMPLAINT, CREATED_BY } = req.body;
 
-        if (!HNCODE) {
+        // Validate input
+        if (!HNCODE || HNCODE.trim() === '') {
+            console.log('❌ Invalid HNCODE:', HNCODE);
             return res.status(400).json({
                 success: false,
-                message: 'กรุณาระบุ Hospital Number'
+                message: 'กรุณาระบุ Hospital Number ที่ถูกต้อง',
+                received: { HNCODE, CHIEF_COMPLAINT, CREATED_BY }
             });
         }
 
+        // Get connection
         connection = await dbPool.getConnection();
+        console.log('✅ Database connection acquired');
 
-        // ตรวจสอบว่าผู้ป่วยมีอยู่จริง
+        // Check if patient exists
+        console.log('👤 Checking patient existence for HNCODE:', HNCODE);
         const [patientCheck] = await connection.execute(
             'SELECT HNCODE, PRENAME, NAME1, SURNAME FROM patient1 WHERE HNCODE = ?',
-            [HNCODE]
+            [HNCODE.trim()]
         );
 
+        console.log('👤 Patient check result:', patientCheck.length, 'rows found');
+
         if (patientCheck.length === 0) {
+            console.log('❌ Patient not found');
             return res.status(404).json({
                 success: false,
-                message: 'ไม่พบข้อมูลผู้ป่วย'
+                message: `ไม่พบข้อมูลผู้ป่วย HN: ${HNCODE}`,
+                suggestion: 'กรุณาตรวจสอบ HN หรือลงทะเบียนผู้ป่วยใหม่',
+                searchedHN: HNCODE
             });
         }
 
-        // หาหมายเลขคิวถัดไป
+        const patient = patientCheck[0];
+        console.log('✅ Patient found:', patient);
+
+        // Get Thailand date/time for queue operations
+        const thailandTime = getThailandTime();
+        const queueDate = formatDateForDB(thailandTime);
+        const queueTimeStr = formatTimeForDB(thailandTime);
+
+        console.log('📅 Using Thailand date/time:', { queueDate, queueTimeStr });
+
+        // Get next queue number for today (Thailand date)
+        console.log('🔢 Getting next queue number...');
         const [queueCheck] = await connection.execute(`
             SELECT COALESCE(MAX(QUEUE_NUMBER), 0) + 1 as next_number
             FROM DAILY_QUEUE 
-            WHERE QUEUE_DATE = CURDATE()
-        `);
+            WHERE DATE(QUEUE_DATE) = ?
+        `, [queueDate]);
 
         const nextQueueNumber = queueCheck[0].next_number;
-        const today = new Date();
-        const queueId = `Q${today.toISOString().split('T')[0].replace(/-/g, '')}${nextQueueNumber.toString().padStart(3, '0')}`;
+        console.log('🔢 Next queue number:', nextQueueNumber);
 
+        // Generate Queue ID using Thailand date
+        const queueId = generateQueueId(nextQueueNumber, thailandTime);
+        console.log('🆔 Generated Queue ID:', queueId);
+
+        // Start transaction
+        console.log('🔄 Starting transaction...');
         await connection.beginTransaction();
 
-        // ✅ สร้างแค่คิว ไม่สร้าง TREATMENT1 (ให้หน้าตรวจรักษาสร้างเอง)
+        // Insert queue record
+        console.log('💾 Inserting queue record...');
+        const insertParams = [
+            queueId,
+            HNCODE.trim(),
+            queueDate,
+            nextQueueNumber,
+            queueTimeStr,
+            'รอตรวจ',
+            'walk-in',
+            (CHIEF_COMPLAINT || '').trim(),
+            thailandTime.toISOString()
+        ];
+
+        console.log('💾 Insert parameters:', insertParams);
+
         await connection.execute(`
             INSERT INTO DAILY_QUEUE (
                 QUEUE_ID, HNCODE, QUEUE_DATE, QUEUE_NUMBER, QUEUE_TIME, 
                 STATUS, TYPE, CHIEF_COMPLAINT, CREATED_AT
-            ) VALUES (?, ?, CURDATE(), ?, CURTIME(), 'รอตรวจ', 'walk-in', ?, NOW())
-        `, [queueId, HNCODE, nextQueueNumber, CHIEF_COMPLAINT]);
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, insertParams);
 
+        console.log('✅ Queue record inserted successfully');
+
+        // Commit transaction
         await connection.commit();
+        console.log('✅ Transaction committed');
 
-        res.status(201).json({
+        // Prepare response
+        const response = {
             success: true,
             message: 'สร้างคิวสำเร็จ',
             data: {
                 QUEUE_ID: queueId,
-                VNO: null, // ✅ จะสร้างทีหลังเมื่อเริ่มตรวจ
+                VNO: null, // Will be created when treatment starts
                 QUEUE_NUMBER: nextQueueNumber,
-                HNCODE: HNCODE,
-                PATIENT_NAME: `${patientCheck[0].PRENAME}${patientCheck[0].NAME1} ${patientCheck[0].SURNAME}`,
-                TYPE: 'walk-in'
+                HNCODE: HNCODE.trim(),
+                PATIENT_NAME: `${patient.PRENAME || ''}${patient.NAME1} ${patient.SURNAME || ''}`.trim(),
+                TYPE: 'walk-in',
+                STATUS: 'รอตรวจ',
+                QUEUE_DATE: queueDate,
+                QUEUE_TIME: queueTimeStr,
+                THAILAND_TIME: thailandTime.toISOString(),
+                SERVER_TIME: new Date().toISOString()
             }
-        });
+        };
+
+        console.log('✅ Queue created successfully:', response.data);
+        res.status(201).json(response);
 
     } catch (error) {
+        // Rollback transaction
         if (connection) {
             try {
                 await connection.rollback();
+                console.log('🔄 Transaction rolled back');
             } catch (rollbackError) {
-                console.error('Error rolling back transaction:', rollbackError);
+                console.error('❌ Rollback failed:', rollbackError);
             }
         }
 
-        console.error('Error creating queue:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการสร้างคิว',
-            error: error.message
+        // Log detailed error
+        console.error('🚨 Queue creation error:', {
+            message: error.message,
+            code: error.code,
+            errno: error.errno,
+            sqlState: error.sqlState,
+            sqlMessage: error.sqlMessage,
+            sql: error.sql
         });
+
+        // Determine error type and response
+        let statusCode = 500;
+        let message = 'เกิดข้อผิดพลาดในการสร้างคิว';
+
+        if (error.code === 'ER_DUP_ENTRY') {
+            statusCode = 409;
+            message = 'Queue ID ซ้ำ กรุณาลองใหม่อีกครั้ง';
+        } else if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+            statusCode = 400;
+            message = 'ข้อมูลอ้างอิงไม่ถูกต้อง';
+        } else if (error.code === 'ER_BAD_FIELD_ERROR') {
+            statusCode = 500;
+            message = 'โครงสร้างฐานข้อมูลไม่ถูกต้อง';
+        } else if (error.code === 'ECONNREFUSED') {
+            statusCode = 503;
+            message = 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้';
+        }
+
+        res.status(statusCode).json({
+            success: false,
+            message: message,
+            error: error.message,
+            errorCode: error.code,
+            sqlMessage: error.sqlMessage,
+            debug: {
+                thailand_time: getThailandTime().toISOString(),
+                server_time: new Date().toISOString(),
+                request_body: req.body
+            }
+        });
+
     } finally {
+        // Release connection
         if (connection) {
             connection.release();
+            console.log('🔌 Database connection released');
         }
     }
 });
 
-// 🔥 แก้ไข: POST appointment check-in - สร้างแค่คิว ไม่สร้าง TREATMENT1
+// POST appointment check-in
 router.post('/checkin', async (req, res) => {
     const dbPool = await require('../config/db');
     let connection = null;
@@ -201,15 +344,15 @@ router.post('/checkin', async (req, res) => {
 
         connection = await dbPool.getConnection();
 
-        // ตรวจสอบนัดหมายและดึง VN_NUMBER
+        // Check appointment
         const [appointmentCheck] = await connection.execute(`
             SELECT a.*, p.PRENAME, p.NAME1, p.SURNAME
             FROM APPOINTMENT_SCHEDULE a
-            JOIN patient1 p ON CONVERT(a.HNCODE USING utf8) = CONVERT(p.HNCODE USING utf8)
+            LEFT JOIN patient1 p ON a.HNCODE = p.HNCODE
             WHERE a.APPOINTMENT_ID = ? 
-              AND a.APPOINTMENT_DATE = CURDATE() 
+              AND DATE(a.APPOINTMENT_DATE) = ?
               AND a.STATUS = 'นัดไว้'
-        `, [APPOINTMENT_ID]);
+        `, [APPOINTMENT_ID, formatDateForDB(getThailandTime())]);
 
         if (appointmentCheck.length === 0) {
             return res.status(404).json({
@@ -219,28 +362,39 @@ router.post('/checkin', async (req, res) => {
         }
 
         const appointment = appointmentCheck[0];
+        const thailandTime = getThailandTime();
+        const queueDate = formatDateForDB(thailandTime);
 
-        // หาหมายเลขคิวถัดไป
+        // Get next queue number
         const [queueCheck] = await connection.execute(`
             SELECT COALESCE(MAX(QUEUE_NUMBER), 0) + 1 as next_number
             FROM DAILY_QUEUE 
-            WHERE QUEUE_DATE = CURDATE()
-        `);
+            WHERE DATE(QUEUE_DATE) = ?
+        `, [queueDate]);
 
         const nextQueueNumber = queueCheck[0].next_number;
-        const queueId = `Q${new Date().toISOString().split('T')[0].replace(/-/g, '')}${nextQueueNumber.toString().padStart(3, '0')}`;
+        const queueId = generateQueueId(nextQueueNumber, thailandTime);
 
         await connection.beginTransaction();
 
-        // ✅ สร้างแค่คิวจากนัดหมาย ไม่สร้าง TREATMENT1
+        // Create queue from appointment
         await connection.execute(`
             INSERT INTO DAILY_QUEUE (
                 QUEUE_ID, HNCODE, QUEUE_DATE, QUEUE_NUMBER, QUEUE_TIME, 
                 STATUS, TYPE, CHIEF_COMPLAINT, APPOINTMENT_ID, CREATED_AT
-            ) VALUES (?, ?, CURDATE(), ?, CURTIME(), 'รอตรวจ', 'appointment', ?, ?, NOW())
-        `, [queueId, appointment.HNCODE, nextQueueNumber, appointment.REASON, APPOINTMENT_ID]);
+            ) VALUES (?, ?, ?, ?, ?, 'รอตรวจ', 'appointment', ?, ?, ?)
+        `, [
+            queueId,
+            appointment.HNCODE,
+            queueDate,
+            nextQueueNumber,
+            formatTimeForDB(thailandTime),
+            appointment.REASON,
+            APPOINTMENT_ID,
+            thailandTime.toISOString()
+        ]);
 
-        // อัปเดตสถานะนัดหมาย
+        // Update appointment status
         await connection.execute(`
             UPDATE APPOINTMENT_SCHEDULE 
             SET STATUS = 'มาแล้ว' 
@@ -254,10 +408,10 @@ router.post('/checkin', async (req, res) => {
             message: 'เช็คอินสำเร็จ',
             data: {
                 QUEUE_ID: queueId,
-                VNO: appointment.VN_NUMBER, // ✅ ส่ง VN จากนัดหมายไปก่อน แต่จะสร้าง TREATMENT1 ทีหลัง
+                VNO: appointment.VN_NUMBER,
                 QUEUE_NUMBER: nextQueueNumber,
                 HNCODE: appointment.HNCODE,
-                PATIENT_NAME: `${appointment.PRENAME}${appointment.NAME1} ${appointment.SURNAME}`,
+                PATIENT_NAME: `${appointment.PRENAME || ''}${appointment.NAME1} ${appointment.SURNAME || ''}`.trim(),
                 TYPE: 'appointment',
                 APPOINTMENT_ID: APPOINTMENT_ID
             }
@@ -285,7 +439,7 @@ router.post('/checkin', async (req, res) => {
     }
 });
 
-// PUT update queue status - อัปเดตสถานะคิว
+// PUT update queue status
 router.put('/:queueId/status', async (req, res) => {
     const dbPool = await require('../config/db');
     let connection = null;
@@ -294,7 +448,7 @@ router.put('/:queueId/status', async (req, res) => {
         const { queueId } = req.params;
         const { status } = req.body;
 
-        const validStatuses = ['รอตรวจ', 'กำลังตรวจ', 'เสร็จแล้ว'];
+        const validStatuses = ['รอตรวจ', 'กำลังตรวจ', 'เสร็จแล้ว', 'ชำระเงินแล้ว'];
         if (!validStatuses.includes(status)) {
             return res.status(400).json({
                 success: false,
@@ -305,7 +459,7 @@ router.put('/:queueId/status', async (req, res) => {
         connection = await dbPool.getConnection();
         await connection.beginTransaction();
 
-        // อัปเดตสถานะคิว
+        // Update queue status
         const [queueResult] = await connection.execute(
             'UPDATE DAILY_QUEUE SET STATUS = ? WHERE QUEUE_ID = ?',
             [status, queueId]
@@ -318,7 +472,7 @@ router.put('/:queueId/status', async (req, res) => {
             });
         }
 
-        // อัปเดตสถานะใน TREATMENT1 ด้วย (ถ้ามี)
+        // Update status in TREATMENT1 if exists
         await connection.execute(
             'UPDATE TREATMENT1 SET STATUS1 = ? WHERE QUEUE_ID = ?',
             [status, queueId]
@@ -354,7 +508,7 @@ router.put('/:queueId/status', async (req, res) => {
     }
 });
 
-// DELETE remove queue - ลบคิว (กรณีผู้ป่วยไม่มา)
+// DELETE remove queue
 router.delete('/:queueId', async (req, res) => {
     const dbPool = await require('../config/db');
     let connection = null;
@@ -365,10 +519,10 @@ router.delete('/:queueId', async (req, res) => {
         connection = await dbPool.getConnection();
         await connection.beginTransaction();
 
-        // ลบ TREATMENT1 record (ถ้ามี)
+        // Delete TREATMENT1 record if exists
         await connection.execute('DELETE FROM TREATMENT1 WHERE QUEUE_ID = ?', [queueId]);
 
-        // ลบคิว
+        // Delete queue
         const [result] = await connection.execute('DELETE FROM DAILY_QUEUE WHERE QUEUE_ID = ?', [queueId]);
 
         if (result.affectedRows === 0) {
@@ -407,25 +561,27 @@ router.delete('/:queueId', async (req, res) => {
     }
 });
 
-// GET queue statistics - สถิติคิว
+// GET queue statistics
 router.get('/stats', async (req, res) => {
     try {
         const db = await require('../config/db');
+        const thailandDate = formatDateForDB(getThailandTime());
 
-        // สถิติวันนี้
+        // Today's stats
         const [todayStats] = await db.execute(`
             SELECT 
                 COUNT(*) as total,
                 COUNT(CASE WHEN STATUS = 'รอตรวจ' THEN 1 END) as waiting,
                 COUNT(CASE WHEN STATUS = 'กำลังตรวจ' THEN 1 END) as in_progress,
                 COUNT(CASE WHEN STATUS = 'เสร็จแล้ว' THEN 1 END) as completed,
+                COUNT(CASE WHEN STATUS = 'ชำระเงินแล้ว' THEN 1 END) as paid,
                 COUNT(CASE WHEN TYPE = 'walk-in' THEN 1 END) as walk_in,
                 COUNT(CASE WHEN TYPE = 'appointment' THEN 1 END) as appointment
             FROM DAILY_QUEUE 
-            WHERE QUEUE_DATE = CURDATE()
-        `);
+            WHERE DATE(QUEUE_DATE) = ?
+        `, [thailandDate]);
 
-        // นัดหมายวันนี้
+        // Today's appointments
         const [appointmentStats] = await db.execute(`
             SELECT 
                 COUNT(*) as total,
@@ -434,15 +590,16 @@ router.get('/stats', async (req, res) => {
                 COUNT(CASE WHEN STATUS = 'ไม่มา' THEN 1 END) as no_show,
                 COUNT(CASE WHEN STATUS = 'ยกเลิก' THEN 1 END) as cancelled
             FROM APPOINTMENT_SCHEDULE 
-            WHERE APPOINTMENT_DATE = CURDATE()
-        `);
+            WHERE DATE(APPOINTMENT_DATE) = ?
+        `, [thailandDate]);
 
         res.json({
             success: true,
             data: {
                 today_queue: todayStats[0],
                 today_appointments: appointmentStats[0],
-                date: new Date().toISOString().split('T')[0],
+                date: thailandDate,
+                thailandTime: getThailandTime().toISOString(),
                 lastUpdated: new Date().toISOString()
             }
         });
@@ -451,7 +608,52 @@ router.get('/stats', async (req, res) => {
         console.error('Error fetching queue statistics:', error);
         res.status(500).json({
             success: false,
-            message: 'เกิดข้อผิดพลาดในการดึงสถิติคิู',
+            message: 'เกิดข้อผิดพลาดในการดึงสถิติคิว',
+            error: error.message
+        });
+    }
+});
+
+// Debug endpoint for timezone testing
+router.get('/debug/time', (req, res) => {
+    const serverTime = new Date();
+    const thailandTime = getThailandTime();
+
+    res.json({
+        serverTime: serverTime.toISOString(),
+        serverTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        thailandTime: thailandTime.toISOString(),
+        thailandDateString: thailandTime.toLocaleDateString('th-TH'),
+        formatForDB: formatDateForDB(thailandTime),
+        timeForDB: formatTimeForDB(thailandTime),
+        sampleQueueId: generateQueueId(1, thailandTime),
+        comparison: {
+            serverDate: formatDateForDB(serverTime),
+            thailandDate: formatDateForDB(thailandTime),
+            difference: `${Math.round((thailandTime.getTime() - serverTime.getTime()) / (1000 * 60 * 60))} hours`
+        }
+    });
+});
+
+// Test endpoint
+router.get('/test', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const [result] = await db.execute('SELECT "Queue API is working!" as message, NOW() as db_time');
+
+        res.json({
+            success: true,
+            message: 'Queue API test successful',
+            data: result[0],
+            timestamps: {
+                server: new Date().toISOString(),
+                thailand: getThailandTime().toISOString()
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Queue API test failed',
             error: error.message
         });
     }
