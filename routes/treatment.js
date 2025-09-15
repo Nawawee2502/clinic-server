@@ -122,10 +122,13 @@ router.get('/', async (req, res) => {
 });
 
 // GET treatment by VNO with full details
+// GET treatment by VNO with full details - แก้ไขให้ตรงกับ TABLE_DRUG ที่เหลือเฉพาะ fields จำเป็น
 router.get('/:vno', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { vno } = req.params;
+
+        console.log(`Fetching treatment details for VNO: ${vno}`);
 
         // Get main treatment info
         const [treatment] = await db.execute(`
@@ -153,18 +156,28 @@ router.get('/:vno', async (req, res) => {
             });
         }
 
+        console.log(`Found treatment record for VNO: ${vno}`);
+
         // Get diagnosis details
         const [diagnosis] = await db.execute(`
             SELECT * FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?
         `, [vno]);
 
-        // Get drugs
+        // Get drugs - แก้ไขให้ใช้เฉพาะ fields ที่มีจริงใน TABLE_DRUG
         const [drugs] = await db.execute(`
             SELECT 
-                td.*,
-                d.GENERIC_NAME, d.TRADE_NAME, d.DOSAGE_FORM, d.STRENGTH1,
-                d.ROUTE_ADMIN, d.INDICATION1, d.SIDE_EFFECTS,
-                u.UNIT_NAME
+                td.VNO,
+                td.DRUG_CODE,
+                td.QTY,
+                td.UNIT_CODE,
+                td.UNIT_PRICE,
+                td.AMT,
+                td.NOTE1,
+                td.TIME1,
+                COALESCE(d.GENERIC_NAME, 'ยาไม่ระบุ') as GENERIC_NAME,
+                COALESCE(d.TRADE_NAME, '') as TRADE_NAME,
+                COALESCE(d.UNIT_PRICE, 0) as DRUG_UNIT_PRICE,
+                COALESCE(u.UNIT_NAME, td.UNIT_CODE) as UNIT_NAME
             FROM TREATMENT1_DRUG td
             LEFT JOIN TABLE_DRUG d ON td.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON td.UNIT_CODE = u.UNIT_CODE
@@ -172,12 +185,21 @@ router.get('/:vno', async (req, res) => {
             ORDER BY td.DRUG_CODE
         `, [vno]);
 
+        console.log(`Found ${drugs.length} drugs for VNO: ${vno}`);
+
         // Get procedures
         const [procedures] = await db.execute(`
             SELECT 
-                tmp.*,
-                mp.MED_PRO_NAME_THAI, mp.MED_PRO_NAME_ENG, mp.MED_PRO_TYPE,
-                u.UNIT_NAME
+                tmp.VNO,
+                tmp.MEDICAL_PROCEDURE_CODE,
+                tmp.QTY,
+                tmp.UNIT_CODE,
+                tmp.UNIT_PRICE,
+                tmp.AMT,
+                COALESCE(mp.MED_PRO_NAME_THAI, 'หัตถการไม่ระบุ') as MED_PRO_NAME_THAI,
+                COALESCE(mp.MED_PRO_NAME_ENG, '') as MED_PRO_NAME_ENG,
+                COALESCE(mp.MED_PRO_TYPE, 'ทั่วไป') as MED_PRO_TYPE,
+                COALESCE(u.UNIT_NAME, tmp.UNIT_CODE) as UNIT_NAME
             FROM TREATMENT1_MED_PROCEDURE tmp
             LEFT JOIN TABLE_MEDICAL_PROCEDURES mp ON tmp.MEDICAL_PROCEDURE_CODE = mp.MEDICAL_PROCEDURE_CODE
             LEFT JOIN TABLE_UNIT u ON tmp.UNIT_CODE = u.UNIT_CODE
@@ -185,32 +207,46 @@ router.get('/:vno', async (req, res) => {
             ORDER BY tmp.MEDICAL_PROCEDURE_CODE
         `, [vno]);
 
+        console.log(`Found ${procedures.length} procedures for VNO: ${vno}`);
+
         // Get lab tests
         const [labTests] = await db.execute(`
             SELECT 
-                tl.*,
-                l.LABNAME
+                tl.VNO,
+                tl.LABCODE,
+                COALESCE(l.LABNAME, 'การตรวจไม่ระบุ') as LABNAME,
+                100 as PRICE
             FROM TREATMENT1_LABORATORY tl
             LEFT JOIN TABLE_LAB l ON tl.LABCODE = l.LABCODE
             WHERE tl.VNO = ?
             ORDER BY l.LABNAME
         `, [vno]);
 
+        console.log(`Found ${labTests.length} lab tests for VNO: ${vno}`);
+
         // Get radiological tests
         const [radioTests] = await db.execute(`
             SELECT 
-                tr.*,
-                r.RLNAME
+                tr.VNO,
+                tr.RLCODE,
+                COALESCE(r.RLNAME, 'การตรวจไม่ระบุ') as RLNAME,
+                200 as PRICE
             FROM TREATMENT1_RADIOLOGICAL tr
             LEFT JOIN TABLE_RADIOLOGICAL r ON tr.RLCODE = r.RLCODE
             WHERE tr.VNO = ?
             ORDER BY r.RLNAME
         `, [vno]);
 
+        console.log(`Found ${radioTests.length} radiological tests for VNO: ${vno}`);
+
         // Calculate total cost
         const totalDrugCost = drugs.reduce((sum, drug) => sum + (parseFloat(drug.AMT) || 0), 0);
         const totalProcedureCost = procedures.reduce((sum, proc) => sum + (parseFloat(proc.AMT) || 0), 0);
-        const totalCost = totalDrugCost + totalProcedureCost;
+        const totalLabCost = labTests.reduce((sum, lab) => sum + (parseFloat(lab.PRICE) || 0), 0);
+        const totalRadioCost = radioTests.reduce((sum, radio) => sum + (parseFloat(radio.PRICE) || 0), 0);
+        const totalCost = totalDrugCost + totalProcedureCost + totalLabCost + totalRadioCost;
+
+        console.log(`Calculated costs - Drugs: ${totalDrugCost}, Procedures: ${totalProcedureCost}, Total: ${totalCost}`);
 
         res.json({
             success: true,
@@ -224,6 +260,8 @@ router.get('/:vno', async (req, res) => {
                 summary: {
                     totalDrugCost: totalDrugCost,
                     totalProcedureCost: totalProcedureCost,
+                    totalLabCost: totalLabCost,
+                    totalRadioCost: totalRadioCost,
                     totalCost: totalCost,
                     drugCount: drugs.length,
                     procedureCount: procedures.length,
@@ -234,11 +272,12 @@ router.get('/:vno', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error fetching treatment details:', error);
+        console.error('Error fetching treatment details for VNO:', req.params.vno, error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายละเอียดการรักษา',
-            error: error.message
+            error: error.message,
+            vno: req.params.vno
         });
     }
 });
