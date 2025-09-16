@@ -123,7 +123,7 @@ require('dotenv').config();
 // Parse DATABASE_URL if provided
 function parseDatabaseUrl(url) {
   if (!url) return null;
-  
+
   try {
     const urlObj = new URL(url);
     return {
@@ -143,7 +143,7 @@ function parseDatabaseUrl(url) {
 const dbConfigs = [
   // Railway configuration (first priority)
   ...(process.env.DATABASE_URL ? [{
-    name: 'Railway (DATABASE_URL)',
+    name: 'Remote Server (DATABASE_URL)',
     ...parseDatabaseUrl(process.env.DATABASE_URL),
     ssl: {
       rejectUnauthorized: false
@@ -151,7 +151,7 @@ const dbConfigs = [
     acquireTimeout: 60000,
     timeout: 60000
   }] : []),
-  
+
   // Railway configuration (environment variables)
   ...(process.env.DB_HOST && process.env.DB_HOST.includes('railway') ? [{
     name: 'Railway (Environment Variables)',
@@ -166,7 +166,7 @@ const dbConfigs = [
     acquireTimeout: 60000,
     timeout: 60000
   }] : []),
-  
+
   // Local configurations
   {
     name: 'MAMP',
