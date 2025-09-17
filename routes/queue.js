@@ -448,6 +448,8 @@ router.put('/:queueId/status', async (req, res) => {
         const { queueId } = req.params;
         const { status } = req.body;
 
+        console.log(`🔍 DEBUG: Updating queue status - QUEUE_ID: ${queueId}, Status: ${status}`);
+
         const validStatuses = ['รอตรวจ', 'กำลังตรวจ', 'เสร็จแล้ว', 'ชำระเงินแล้ว'];
         if (!validStatuses.includes(status)) {
             return res.status(400).json({
@@ -459,6 +461,23 @@ router.put('/:queueId/status', async (req, res) => {
         connection = await dbPool.getConnection();
         await connection.beginTransaction();
 
+        // เช็คข้อมูลก่อนอัพเดท
+        const [beforeUpdate] = await connection.execute(`
+            SELECT VNO, STATUS1, SYMPTOM, DXCODE, TREATMENT1, INVESTIGATION_NOTES 
+            FROM TREATMENT1 WHERE QUEUE_ID = ?
+        `, [queueId]);
+
+        if (beforeUpdate.length > 0) {
+            console.log(`📋 BEFORE UPDATE - VNO: ${beforeUpdate[0].VNO}`);
+            console.log(`📋 Current data:`, {
+                STATUS1: beforeUpdate[0].STATUS1,
+                SYMPTOM: beforeUpdate[0].SYMPTOM,
+                DXCODE: beforeUpdate[0].DXCODE,
+                TREATMENT1: beforeUpdate[0].TREATMENT1,
+                INVESTIGATION_NOTES: beforeUpdate[0].INVESTIGATION_NOTES
+            });
+        }
+
         // Update queue status
         const [queueResult] = await connection.execute(
             'UPDATE DAILY_QUEUE SET STATUS = ? WHERE QUEUE_ID = ?',
@@ -466,17 +485,64 @@ router.put('/:queueId/status', async (req, res) => {
         );
 
         if (queueResult.affectedRows === 0) {
+            await connection.rollback();
             return res.status(404).json({
                 success: false,
                 message: 'ไม่พบคิวที่ระบุ'
             });
         }
 
-        // Update status in TREATMENT1 if exists
-        await connection.execute(
-            'UPDATE TREATMENT1 SET STATUS1 = ? WHERE QUEUE_ID = ?',
-            [status, queueId]
-        );
+        console.log(`✅ Queue status updated successfully`);
+
+        // อัพเดท TREATMENT1 อย่างระมัดระวัง - เฉพาะ STATUS1
+        if (beforeUpdate.length > 0) {
+            const [treatmentResult] = await connection.execute(
+                'UPDATE TREATMENT1 SET STATUS1 = ? WHERE QUEUE_ID = ? AND VNO = ?',
+                [status, queueId, beforeUpdate[0].VNO]
+            );
+
+            console.log(`✅ Treatment status updated - affected rows: ${treatmentResult.affectedRows}`);
+
+            // เช็คข้อมูลหลังอัพเดท
+            const [afterUpdate] = await connection.execute(`
+                SELECT VNO, STATUS1, SYMPTOM, DXCODE, TREATMENT1, INVESTIGATION_NOTES 
+                FROM TREATMENT1 WHERE QUEUE_ID = ?
+            `, [queueId]);
+
+            if (afterUpdate.length > 0) {
+                console.log(`📋 AFTER UPDATE - VNO: ${afterUpdate[0].VNO}`);
+                console.log(`📋 Updated data:`, {
+                    STATUS1: afterUpdate[0].STATUS1,
+                    SYMPTOM: afterUpdate[0].SYMPTOM,
+                    DXCODE: afterUpdate[0].DXCODE,
+                    TREATMENT1: afterUpdate[0].TREATMENT1,
+                    INVESTIGATION_NOTES: afterUpdate[0].INVESTIGATION_NOTES
+                });
+
+                // เปรียบเทียบข้อมูลก่อนและหลัง
+                const fieldsToCheck = ['SYMPTOM', 'DXCODE', 'TREATMENT1', 'INVESTIGATION_NOTES'];
+                let dataLost = false;
+
+                fieldsToCheck.forEach(field => {
+                    if (beforeUpdate[0][field] && !afterUpdate[0][field]) {
+                        console.log(`🚨 DATA LOST: ${field} was "${beforeUpdate[0][field]}" now null`);
+                        dataLost = true;
+                    }
+                });
+
+                if (dataLost) {
+                    console.log(`🚨 CRITICAL: Data loss detected! Rolling back...`);
+                    await connection.rollback();
+                    return res.status(500).json({
+                        success: false,
+                        message: 'ตรวจพบการสูญหายของข้อมูล การอัพเดทถูกยกเลิก',
+                        error: 'Data loss prevented'
+                    });
+                }
+            }
+        } else {
+            console.log(`⚠️ No TREATMENT1 record found for QUEUE_ID: ${queueId}`);
+        }
 
         await connection.commit();
 
@@ -495,7 +561,7 @@ router.put('/:queueId/status', async (req, res) => {
             }
         }
 
-        console.error('Error updating queue status:', error);
+        console.error('🚨 Error updating queue status:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการอัปเดตสถานะ',
@@ -505,6 +571,60 @@ router.put('/:queueId/status', async (req, res) => {
         if (connection) {
             connection.release();
         }
+    }
+});
+
+router.put('/:queueId/status-only', async (req, res) => {
+    const dbPool = await require('../config/db');
+
+    try {
+        const { queueId } = req.params;
+        const { status } = req.body;
+
+        console.log(`🔍 STATUS-ONLY UPDATE: ${queueId} -> ${status}`);
+
+        const validStatuses = ['รอตรวจ', 'กำลังตรวจ', 'เสร็จแล้ว', 'ชำระเงินแล้ว'];
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: 'สถานะไม่ถูกต้อง'
+            });
+        }
+
+        // อัพเดทเฉพาะ DAILY_QUEUE
+        const [queueResult] = await dbPool.execute(
+            'UPDATE DAILY_QUEUE SET STATUS = ? WHERE QUEUE_ID = ?',
+            [status, queueId]
+        );
+
+        if (queueResult.affectedRows === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'ไม่พบคิวที่ระบุ'
+            });
+        }
+
+        // อัพเดทเฉพาะ STATUS1 ใน TREATMENT1 โดยไม่แตะฟิลด์อื่น
+        await dbPool.execute(
+            'UPDATE TREATMENT1 SET STATUS1 = ? WHERE QUEUE_ID = ?',
+            [status, queueId]
+        );
+
+        console.log(`✅ Status-only update completed`);
+
+        res.json({
+            success: true,
+            message: 'อัปเดตสถานะสำเร็จ (ไม่แตะข้อมูลอื่น)',
+            data: { QUEUE_ID: queueId, STATUS: status }
+        });
+
+    } catch (error) {
+        console.error('Error in status-only update:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการอัปเดตสถานะ',
+            error: error.message
+        });
     }
 });
 
