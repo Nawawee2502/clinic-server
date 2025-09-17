@@ -1,17 +1,50 @@
 const express = require('express');
 const router = express.Router();
 
+// const ensureProcedureExists = async (connection, procedureCode, procedureName) => {
+//     try {
+//         // ตัดรหัสให้สั้นลงถ้ายาวเกินไป
+//         if (procedureCode.length > 15) {
+//             procedureCode = procedureCode.substring(0, 15);
+//         }
+
+//         // ตรวจสอบว่ามีหัตถการนี้อยู่หรือไม่
+//         const [existing] = await connection.execute(
+//             'SELECT MEDICAL_PROCEDURE_CODE FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ?',
+//             [procedureCode]
+//         );
+
+//         if (existing.length === 0) {
+//             // ถ้าไม่มี ให้เพิ่มใหม่
+//             await connection.execute(`
+//                 INSERT INTO TABLE_MEDICAL_PROCEDURES 
+//                 (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
+//                 VALUES (?, ?, ?, 'Custom', 0)
+//             `, [procedureCode, procedureName.substring(0, 255), procedureName.substring(0, 255)]);
+
+//             console.log(`Added new procedure: ${procedureCode} - ${procedureName}`);
+//         }
+//     } catch (error) {
+//         console.error('Error ensuring procedure exists:', error);
+//         // ไม่ throw error เพื่อไม่ให้กระทบการทำงาน
+//     }
+// };
+
 const ensureProcedureExists = async (connection, procedureCode, procedureName) => {
     try {
+        // ป้องกัน null/undefined
+        let code = (procedureCode || '').toString();
+        let name = (procedureName || '').toString();
+
         // ตัดรหัสให้สั้นลงถ้ายาวเกินไป
-        if (procedureCode.length > 15) {
-            procedureCode = procedureCode.substring(0, 15);
+        if (code.length > 15) {
+            code = code.substring(0, 15);
         }
 
         // ตรวจสอบว่ามีหัตถการนี้อยู่หรือไม่
         const [existing] = await connection.execute(
-            'SELECT MEDICAL_PROCEDURE_CODE FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ?',
-            [procedureCode]
+            'SELECT MEDICAL_PROCEDURE_CODE FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ? LIMIT 1',
+            [code]
         );
 
         if (existing.length === 0) {
@@ -20,15 +53,20 @@ const ensureProcedureExists = async (connection, procedureCode, procedureName) =
                 INSERT INTO TABLE_MEDICAL_PROCEDURES 
                 (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
                 VALUES (?, ?, ?, 'Custom', 0)
-            `, [procedureCode, procedureName.substring(0, 255), procedureName.substring(0, 255)]);
+            `, [
+                code,
+                name.substring(0, 255),
+                name.substring(0, 255)
+            ]);
 
-            console.log(`Added new procedure: ${procedureCode} - ${procedureName}`);
+            console.log(`✅ Added new procedure: ${code} - ${name}`);
         }
     } catch (error) {
-        console.error('Error ensuring procedure exists:', error);
-        // ไม่ throw error เพื่อไม่ให้กระทบการทำงาน
+        console.error('❌ Error ensuring procedure exists:', error.message);
+        // ไม่ throw error เพื่อไม่ให้กระทบการทำงานหลัก
     }
 };
+
 
 // GET all treatments with filters
 router.get('/', async (req, res) => {
@@ -657,7 +695,8 @@ router.put('/:vno', async (req, res) => {
         const {
             VNO, HNNO, DXCODE, ICD10CODE, TREATMENT1, STATUS1,
             SYMPTOM, diagnosis, drugs = [], procedures = [],
-            labTests = [], radioTests = [], INVESTIGATION_NOTES
+            labTests = [], radioTests = [], INVESTIGATION_NOTES,
+            WEIGHT1, HIGHT1, BT1, PR1, RR1, BP1
         } = req.body;
 
         console.log(`Updating treatment ${vno}:`, {
