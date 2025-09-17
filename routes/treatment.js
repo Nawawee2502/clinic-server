@@ -861,6 +861,14 @@ router.put('/:vno', async (req, res) => {
 
     const toNull = (value) => value === undefined || value === '' ? null : value;
 
+    // helper function กัน vitalsign หาย
+    const parseOrKeep = (value, oldValue) => {
+        if (value === undefined) return oldValue;        // ไม่ส่งมา → เก็บค่าเก่า
+        if (value === null || value === '') return null; // ตั้งใจลบ → NULL
+        if (!isNaN(parseFloat(value))) return parseFloat(value); // ส่งตัวเลขมา → ใช้ค่าใหม่
+        return oldValue; // กันพัง
+    };
+
     try {
         connection = await db.getConnection();
         await connection.beginTransaction();
@@ -924,15 +932,15 @@ router.put('/:vno', async (req, res) => {
 
         // vitalsign
         const mergedVitals = {
-            RDATE: toNull(RDATE) ?? existing.RDATE,
-            WEIGHT1: WEIGHT1 !== undefined ? parseFloat(WEIGHT1) || null : existing.WEIGHT1,
-            HIGHT1: HIGHT1 !== undefined ? parseFloat(HIGHT1) || null : existing.HIGHT1,
-            BT1: BT1 !== undefined ? parseFloat(BT1) || null : existing.BT1,
-            BP1: BP1 !== undefined ? parseInt(BP1) || null : existing.BP1,
-            BP2: BP2 !== undefined ? parseInt(BP2) || null : existing.BP2,
-            RR1: RR1 !== undefined ? parseInt(RR1) || null : existing.RR1,
-            PR1: PR1 !== undefined ? parseInt(PR1) || null : existing.PR1,
-            SPO2: SPO2 !== undefined ? parseInt(SPO2) || null : existing.SPO2,
+            RDATE: req.body.hasOwnProperty("RDATE") ? toNull(RDATE) : existing.RDATE,
+            WEIGHT1: parseOrKeep(WEIGHT1, existing.WEIGHT1),
+            HIGHT1: parseOrKeep(HIGHT1, existing.HIGHT1),
+            BT1: parseOrKeep(BT1, existing.BT1),
+            BP1: parseOrKeep(BP1, existing.BP1),
+            BP2: parseOrKeep(BP2, existing.BP2),
+            RR1: parseOrKeep(RR1, existing.RR1),
+            PR1: parseOrKeep(PR1, existing.PR1),
+            SPO2: parseOrKeep(SPO2, existing.SPO2),
         };
 
         updateFields.push(
@@ -1111,6 +1119,7 @@ router.put('/:vno', async (req, res) => {
         if (connection) connection.release();
     }
 });
+
 
 
 // GET treatment statistics
