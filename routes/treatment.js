@@ -858,16 +858,18 @@ router.post('/', async (req, res) => {
 router.put('/:vno', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
+    const version = "PUT_TREATMENT_v2.1"; 
+
+    console.log(`🚀 Running ${version} for VNO=${req.params.vno}`);
+
+    // ✅ helper กัน field หาย
+    const safeOrKeep = (value, oldValue) => {
+        if (value === undefined) return oldValue; // ไม่ส่ง → เก็บของเดิม
+        if (value === null || value === '') return null; // ตั้งใจ clear
+        return value;
+    };
 
     const toNull = (value) => value === undefined || value === '' ? null : value;
-
-    // helper function กัน vitalsign หาย
-    const parseOrKeep = (value, oldValue) => {
-        if (value === undefined) return oldValue;        // ไม่ส่งมา → เก็บค่าเก่า
-        if (value === null || value === '') return null; // ตั้งใจลบ → NULL
-        if (!isNaN(parseFloat(value))) return parseFloat(value); // ส่งตัวเลขมา → ใช้ค่าใหม่
-        return oldValue; // กันพัง
-    };
 
     try {
         connection = await db.getConnection();
@@ -878,11 +880,12 @@ router.put('/:vno', async (req, res) => {
         console.log(`🔍 TREATMENT UPDATE: VNO ${vno}`);
         console.log(`📥 Request body keys:`, Object.keys(req.body));
 
-        // ดึงข้อมูลเดิม
+        // ดึงข้อมูลเก่า
         const [existingData] = await connection.execute(
             `SELECT * FROM TREATMENT1 WHERE VNO = ?`,
             [vno]
         );
+
         if (existingData.length === 0) {
             await connection.rollback();
             return res.status(404).json({
@@ -890,9 +893,10 @@ router.put('/:vno', async (req, res) => {
                 message: 'ไม่พบข้อมูลการรักษาที่ต้องการอัปเดต',
             });
         }
+
         const existing = existingData[0];
 
-        // destructure
+        // destructure body
         const {
             STATUS1, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1, INVESTIGATION_NOTES,
             WEIGHT1, HIGHT1, BT1, BP1, BP2, RR1, PR1, SPO2, RDATE,
@@ -906,52 +910,39 @@ router.put('/:vno', async (req, res) => {
         const updateFields = [];
         const updateValues = [];
 
-        const addField = (field, value) => {
-            if (req.body.hasOwnProperty(field)) {
-                updateFields.push(`${field} = ?`);
-                updateValues.push(value);
-            }
+        const addField = (field, value, oldValue) => {
+            updateFields.push(`${field} = ?`);
+            updateValues.push(safeOrKeep(value, oldValue));
         };
 
-        addField('STATUS1', STATUS1);
-        addField('SYMPTOM', SYMPTOM);
-        addField('DXCODE', DXCODE);
-        addField('ICD10CODE', ICD10CODE);
-        addField('TREATMENT1', TREATMENT1);
-        addField('INVESTIGATION_NOTES', INVESTIGATION_NOTES);
-        addField('TOTAL_AMOUNT', TOTAL_AMOUNT ? parseFloat(TOTAL_AMOUNT) : existing.TOTAL_AMOUNT);
-        addField('DISCOUNT_AMOUNT', DISCOUNT_AMOUNT ? parseFloat(DISCOUNT_AMOUNT) : existing.DISCOUNT_AMOUNT);
-        addField('NET_AMOUNT', NET_AMOUNT ? parseFloat(NET_AMOUNT) : existing.NET_AMOUNT);
-        addField('PAYMENT_STATUS', PAYMENT_STATUS ?? existing.PAYMENT_STATUS);
-        addField('PAYMENT_DATE', PAYMENT_DATE ?? existing.PAYMENT_DATE);
-        addField('PAYMENT_TIME', PAYMENT_TIME ?? existing.PAYMENT_TIME);
-        addField('PAYMENT_METHOD', PAYMENT_METHOD ?? existing.PAYMENT_METHOD);
-        addField('RECEIVED_AMOUNT', RECEIVED_AMOUNT ? parseFloat(RECEIVED_AMOUNT) : existing.RECEIVED_AMOUNT);
-        addField('CHANGE_AMOUNT', CHANGE_AMOUNT ? parseFloat(CHANGE_AMOUNT) : existing.CHANGE_AMOUNT);
-        addField('CASHIER', CASHIER ?? existing.CASHIER);
+        addField('STATUS1', STATUS1, existing.STATUS1);
+        addField('SYMPTOM', SYMPTOM, existing.SYMPTOM);
+        addField('DXCODE', DXCODE, existing.DXCODE);
+        addField('ICD10CODE', ICD10CODE, existing.ICD10CODE);
+        addField('TREATMENT1', TREATMENT1, existing.TREATMENT1);
+        addField('INVESTIGATION_NOTES', INVESTIGATION_NOTES, existing.INVESTIGATION_NOTES);
+
+        addField('TOTAL_AMOUNT', TOTAL_AMOUNT, existing.TOTAL_AMOUNT);
+        addField('DISCOUNT_AMOUNT', DISCOUNT_AMOUNT, existing.DISCOUNT_AMOUNT);
+        addField('NET_AMOUNT', NET_AMOUNT, existing.NET_AMOUNT);
+        addField('PAYMENT_STATUS', PAYMENT_STATUS, existing.PAYMENT_STATUS);
+        addField('PAYMENT_DATE', PAYMENT_DATE, existing.PAYMENT_DATE);
+        addField('PAYMENT_TIME', PAYMENT_TIME, existing.PAYMENT_TIME);
+        addField('PAYMENT_METHOD', PAYMENT_METHOD, existing.PAYMENT_METHOD);
+        addField('RECEIVED_AMOUNT', RECEIVED_AMOUNT, existing.RECEIVED_AMOUNT);
+        addField('CHANGE_AMOUNT', CHANGE_AMOUNT, existing.CHANGE_AMOUNT);
+        addField('CASHIER', CASHIER, existing.CASHIER);
 
         // vitalsign
-        const mergedVitals = {
-            RDATE: req.body.hasOwnProperty("RDATE") ? toNull(RDATE) : existing.RDATE,
-            WEIGHT1: parseOrKeep(WEIGHT1, existing.WEIGHT1),
-            HIGHT1: parseOrKeep(HIGHT1, existing.HIGHT1),
-            BT1: parseOrKeep(BT1, existing.BT1),
-            BP1: parseOrKeep(BP1, existing.BP1),
-            BP2: parseOrKeep(BP2, existing.BP2),
-            RR1: parseOrKeep(RR1, existing.RR1),
-            PR1: parseOrKeep(PR1, existing.PR1),
-            SPO2: parseOrKeep(SPO2, existing.SPO2),
-        };
-
-        updateFields.push(
-            'RDATE = ?', 'WEIGHT1 = ?', 'HIGHT1 = ?', 'BT1 = ?',
-            'BP1 = ?', 'BP2 = ?', 'RR1 = ?', 'PR1 = ?', 'SPO2 = ?'
-        );
-        updateValues.push(
-            mergedVitals.RDATE, mergedVitals.WEIGHT1, mergedVitals.HIGHT1,
-            mergedVitals.BT1, mergedVitals.BP1, mergedVitals.BP2,
-            mergedVitals.RR1, mergedVitals.PR1, mergedVitals.SPO2
-        );
+        addField('RDATE', RDATE, existing.RDATE);
+        addField('WEIGHT1', WEIGHT1, existing.WEIGHT1);
+        addField('HIGHT1', HIGHT1, existing.HIGHT1);
+        addField('BT1', BT1, existing.BT1);
+        addField('BP1', BP1, existing.BP1);
+        addField('BP2', BP2, existing.BP2);
+        addField('RR1', RR1, existing.RR1);
+        addField('PR1', PR1, existing.PR1);
+        addField('SPO2', SPO2, existing.SPO2);
 
         if (updateFields.length > 0) {
             updateValues.push(vno);
@@ -970,10 +961,10 @@ router.put('/:vno', async (req, res) => {
             SET CHIEF_COMPLAINT=?, PRESENT_ILL=?, PHYSICAL_EXAM=?, PLAN1=?
             WHERE VNO=?`,
                     [
-                        diagnosis.CHIEF_COMPLAINT ?? exist[0].CHIEF_COMPLAINT,
-                        diagnosis.PRESENT_ILL ?? exist[0].PRESENT_ILL,
-                        diagnosis.PHYSICAL_EXAM ?? exist[0].PHYSICAL_EXAM,
-                        diagnosis.PLAN1 ?? exist[0].PLAN1,
+                        safeOrKeep(diagnosis.CHIEF_COMPLAINT, exist[0].CHIEF_COMPLAINT),
+                        safeOrKeep(diagnosis.PRESENT_ILL, exist[0].PRESENT_ILL),
+                        safeOrKeep(diagnosis.PHYSICAL_EXAM, exist[0].PHYSICAL_EXAM),
+                        safeOrKeep(diagnosis.PLAN1, exist[0].PLAN1),
                         vno
                     ]
                 );
@@ -1000,12 +991,12 @@ router.put('/:vno', async (req, res) => {
               SET QTY=?, UNIT_CODE=?, UNIT_PRICE=?, AMT=?, NOTE1=?, TIME1=?
               WHERE VNO=? AND DRUG_CODE=?`,
                         [
-                            drug.QTY ?? exist[0].QTY,
-                            drug.UNIT_CODE ?? exist[0].UNIT_CODE,
-                            drug.UNIT_PRICE ?? exist[0].UNIT_PRICE,
-                            drug.AMT ?? exist[0].AMT,
-                            drug.NOTE1 ?? exist[0].NOTE1,
-                            drug.TIME1 ?? exist[0].TIME1,
+                            safeOrKeep(drug.QTY, exist[0].QTY),
+                            safeOrKeep(drug.UNIT_CODE, exist[0].UNIT_CODE),
+                            safeOrKeep(drug.UNIT_PRICE, exist[0].UNIT_PRICE),
+                            safeOrKeep(drug.AMT, exist[0].AMT),
+                            safeOrKeep(drug.NOTE1, exist[0].NOTE1),
+                            safeOrKeep(drug.TIME1, exist[0].TIME1),
                             vno, drug.DRUG_CODE
                         ]
                     );
@@ -1034,9 +1025,9 @@ router.put('/:vno', async (req, res) => {
               SET QTY=?, PRICE=?, NOTE1=?
               WHERE VNO=? AND PROC_CODE=?`,
                         [
-                            proc.QTY ?? exist[0].QTY,
-                            proc.PRICE ?? exist[0].PRICE,
-                            proc.NOTE1 ?? exist[0].NOTE1,
+                            safeOrKeep(proc.QTY, exist[0].QTY),
+                            safeOrKeep(proc.PRICE, exist[0].PRICE),
+                            safeOrKeep(proc.NOTE1, exist[0].NOTE1),
                             vno, proc.PROC_CODE
                         ]
                     );
@@ -1064,8 +1055,8 @@ router.put('/:vno', async (req, res) => {
               SET RESULT=?, NOTE1=?
               WHERE VNO=? AND LAB_CODE=?`,
                         [
-                            lab.RESULT ?? exist[0].RESULT,
-                            lab.NOTE1 ?? exist[0].NOTE1,
+                            safeOrKeep(lab.RESULT, exist[0].RESULT),
+                            safeOrKeep(lab.NOTE1, exist[0].NOTE1),
                             vno, lab.LAB_CODE
                         ]
                     );
@@ -1093,8 +1084,8 @@ router.put('/:vno', async (req, res) => {
               SET RESULT=?, NOTE1=?
               WHERE VNO=? AND RADIO_CODE=?`,
                         [
-                            radio.RESULT ?? exist[0].RESULT,
-                            radio.NOTE1 ?? exist[0].NOTE1,
+                            safeOrKeep(radio.RESULT, exist[0].RESULT),
+                            safeOrKeep(radio.NOTE1, exist[0].NOTE1),
                             vno, radio.RADIO_CODE
                         ]
                     );
@@ -1119,6 +1110,7 @@ router.put('/:vno', async (req, res) => {
         if (connection) connection.release();
     }
 });
+
 
 
 
