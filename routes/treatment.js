@@ -504,345 +504,126 @@ router.post('/', async (req, res) => {
     }
 });
 
-// PUT /:vno 
-// PUT /:vno - แก้ไขให้ preserve ข้อมูลทั้งหมดไม่ให้หาย
+// PUT update entire treatment
 // router.put('/:vno', async (req, res) => {
 //     const db = await require('../config/db');
 //     let connection = null;
-
-//     const toNull = (value) => value === undefined || value === '' ? null : value;
 
 //     try {
 //         connection = await db.getConnection();
 //         await connection.beginTransaction();
 
 //         const { vno } = req.params;
-
-//         console.log(`🔍 TREATMENT UPDATE: VNO ${vno}`);
-//         console.log(`📥 Request body keys:`, Object.keys(req.body));
-
-//         // ดึงข้อมูลเดิมทั้งหมดก่อนอัพเดท - รวมข้อมูลที่เกี่ยวข้อง
-//         const [existingData] = await connection.execute(`
-//             SELECT * FROM TREATMENT1 WHERE VNO = ?
-//         `, [vno]);
-
-//         if (existingData.length === 0) {
-//             await connection.rollback();
-//             return res.status(404).json({
-//                 success: false,
-//                 message: 'ไม่พบข้อมูลการรักษาที่ต้องการอัปเดต'
-//             });
-//         }
-
-//         const existing = existingData[0];
-
-//         // ✅ ดึงข้อมูล diagnosis เดิม
-//         const [existingDiagnosis] = await connection.execute(`
-//             SELECT * FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?
-//         `, [vno]);
-
-//         // ✅ ดึงข้อมูล drugs เดิม
-//         const [existingDrugs] = await connection.execute(`
-//             SELECT * FROM TREATMENT1_DRUG WHERE VNO = ?
-//         `, [vno]);
-
-//         // ✅ ดึงข้อมูล procedures เดิม
-//         const [existingProcedures] = await connection.execute(`
-//             SELECT * FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?
-//         `, [vno]);
-
-//         // ✅ ดึงข้อมูล lab tests เดิม
-//         const [existingLabTests] = await connection.execute(`
-//             SELECT * FROM TREATMENT1_LABORATORY WHERE VNO = ?
-//         `, [vno]);
-
-//         // ✅ ดึงข้อมูล radiological tests เดิม
-//         const [existingRadioTests] = await connection.execute(`
-//             SELECT * FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?
-//         `, [vno]);
-
-//         console.log(`📊 Existing data counts:`, {
-//             diagnosis: existingDiagnosis.length,
-//             drugs: existingDrugs.length,
-//             procedures: existingProcedures.length,
-//             labTests: existingLabTests.length,
-//             radioTests: existingRadioTests.length
-//         });
-
 //         const {
 //             STATUS1, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1, INVESTIGATION_NOTES,
-//             // Vital Signs
-//             WEIGHT1, HIGHT1, BT1, BP1, BP2, RR1, PR1, SPO2, RDATE,
 //             // Payment fields
 //             TOTAL_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT, PAYMENT_STATUS,
 //             PAYMENT_DATE, PAYMENT_TIME, PAYMENT_METHOD, RECEIVED_AMOUNT,
 //             CHANGE_AMOUNT, CASHIER,
-//             // Related data - อาจจะส่งมาหรือไม่ส่งมา
-//             diagnosis, drugs, procedures, labTests, radioTests
+//             // Related data
+//             diagnosis, drugs = [], procedures = [], labTests = [], radioTests = []
 //         } = req.body;
 
-//         // ✅ สร้าง merged vital signs data
-//         const mergedVitals = {
-//             RDATE: toNull(RDATE) || existing.RDATE,
-//             WEIGHT1: WEIGHT1 !== undefined ? (parseFloat(WEIGHT1) || null) : existing.WEIGHT1,
-//             HIGHT1: HIGHT1 !== undefined ? (parseFloat(HIGHT1) || null) : existing.HIGHT1,
-//             BT1: BT1 !== undefined ? (parseFloat(BT1) || null) : existing.BT1,
-//             BP1: BP1 !== undefined ? (parseInt(BP1) || null) : existing.BP1,
-//             BP2: BP2 !== undefined ? (parseInt(BP2) || null) : existing.BP2,
-//             RR1: RR1 !== undefined ? (parseInt(RR1) || null) : existing.RR1,
-//             PR1: PR1 !== undefined ? (parseInt(PR1) || null) : existing.PR1,
-//             SPO2: SPO2 !== undefined ? (parseInt(SPO2) || null) : existing.SPO2
-//         };
-
-//         // สร้าง dynamic update query สำหรับ main table
+//         // สร้าง dynamic update query
 //         const updateFields = [];
 //         const updateValues = [];
 
-//         // ฟิลด์หลักที่ต้องอัพเดท
-//         if (req.body.hasOwnProperty('STATUS1') && STATUS1 !== undefined) {
+//         if (STATUS1 !== undefined) {
 //             updateFields.push('STATUS1 = ?');
 //             updateValues.push(STATUS1);
 //         }
-
-//         if (req.body.hasOwnProperty('SYMPTOM') && SYMPTOM !== undefined) {
+//         if (SYMPTOM !== undefined) {
 //             updateFields.push('SYMPTOM = ?');
 //             updateValues.push(SYMPTOM);
 //         }
-
-//         if (req.body.hasOwnProperty('DXCODE') && DXCODE !== undefined) {
+//         if (DXCODE !== undefined) {
 //             updateFields.push('DXCODE = ?');
 //             updateValues.push(DXCODE);
 //         }
-
-//         if (req.body.hasOwnProperty('ICD10CODE') && ICD10CODE !== undefined) {
+//         if (ICD10CODE !== undefined) {
 //             updateFields.push('ICD10CODE = ?');
 //             updateValues.push(ICD10CODE);
 //         }
-
-//         if (req.body.hasOwnProperty('TREATMENT1') && TREATMENT1 !== undefined) {
+//         if (TREATMENT1 !== undefined) {
 //             updateFields.push('TREATMENT1 = ?');
 //             updateValues.push(TREATMENT1);
 //         }
-
-//         if (req.body.hasOwnProperty('INVESTIGATION_NOTES') && INVESTIGATION_NOTES !== undefined) {
+//         if (INVESTIGATION_NOTES !== undefined) {
 //             updateFields.push('INVESTIGATION_NOTES = ?');
 //             updateValues.push(INVESTIGATION_NOTES);
 //         }
 
 //         // Payment fields
-//         if (req.body.hasOwnProperty('TOTAL_AMOUNT') && TOTAL_AMOUNT !== undefined) {
+//         if (TOTAL_AMOUNT !== undefined) {
 //             updateFields.push('TOTAL_AMOUNT = ?');
 //             updateValues.push(parseFloat(TOTAL_AMOUNT) || 0);
 //         }
-//         if (req.body.hasOwnProperty('DISCOUNT_AMOUNT') && DISCOUNT_AMOUNT !== undefined) {
+//         if (DISCOUNT_AMOUNT !== undefined) {
 //             updateFields.push('DISCOUNT_AMOUNT = ?');
 //             updateValues.push(parseFloat(DISCOUNT_AMOUNT) || 0);
 //         }
-//         if (req.body.hasOwnProperty('NET_AMOUNT') && NET_AMOUNT !== undefined) {
+//         if (NET_AMOUNT !== undefined) {
 //             updateFields.push('NET_AMOUNT = ?');
 //             updateValues.push(parseFloat(NET_AMOUNT) || 0);
 //         }
-//         if (req.body.hasOwnProperty('PAYMENT_STATUS') && PAYMENT_STATUS !== undefined) {
+//         if (PAYMENT_STATUS !== undefined) {
 //             updateFields.push('PAYMENT_STATUS = ?');
 //             updateValues.push(PAYMENT_STATUS);
 //         }
-//         if (req.body.hasOwnProperty('PAYMENT_DATE') && PAYMENT_DATE !== undefined) {
+//         if (PAYMENT_DATE !== undefined) {
 //             updateFields.push('PAYMENT_DATE = ?');
 //             updateValues.push(PAYMENT_DATE);
 //         }
-//         if (req.body.hasOwnProperty('PAYMENT_TIME') && PAYMENT_TIME !== undefined) {
+//         if (PAYMENT_TIME !== undefined) {
 //             updateFields.push('PAYMENT_TIME = ?');
 //             updateValues.push(PAYMENT_TIME);
 //         }
-//         if (req.body.hasOwnProperty('PAYMENT_METHOD') && PAYMENT_METHOD !== undefined) {
+//         if (PAYMENT_METHOD !== undefined) {
 //             updateFields.push('PAYMENT_METHOD = ?');
 //             updateValues.push(PAYMENT_METHOD);
 //         }
-//         if (req.body.hasOwnProperty('RECEIVED_AMOUNT') && RECEIVED_AMOUNT !== undefined) {
+//         if (RECEIVED_AMOUNT !== undefined) {
 //             updateFields.push('RECEIVED_AMOUNT = ?');
 //             updateValues.push(parseFloat(RECEIVED_AMOUNT) || 0);
 //         }
-//         if (req.body.hasOwnProperty('CHANGE_AMOUNT') && CHANGE_AMOUNT !== undefined) {
+//         if (CHANGE_AMOUNT !== undefined) {
 //             updateFields.push('CHANGE_AMOUNT = ?');
 //             updateValues.push(parseFloat(CHANGE_AMOUNT) || 0);
 //         }
-//         if (req.body.hasOwnProperty('CASHIER') && CASHIER !== undefined) {
+//         if (CASHIER !== undefined) {
 //             updateFields.push('CASHIER = ?');
 //             updateValues.push(CASHIER);
 //         }
 
-//         // ✅ เพิ่ม vital signs ทุกตัวเข้าไปใน update ทุกครั้ง
-//         updateFields.push(
-//             'RDATE = ?', 'WEIGHT1 = ?', 'HIGHT1 = ?', 'BT1 = ?',
-//             'BP1 = ?', 'BP2 = ?', 'RR1 = ?', 'PR1 = ?', 'SPO2 = ?'
-//         );
-//         updateValues.push(
-//             mergedVitals.RDATE, mergedVitals.WEIGHT1, mergedVitals.HIGHT1, mergedVitals.BT1,
-//             mergedVitals.BP1, mergedVitals.BP2, mergedVitals.RR1, mergedVitals.PR1, mergedVitals.SPO2
-//         );
-
-//         // อัพเดทข้อมูลหลัก
 //         if (updateFields.length > 0) {
 //             updateValues.push(vno);
-//             const updateQuery = `UPDATE TREATMENT1 SET ${updateFields.join(', ')} WHERE VNO = ?`;
 
-//             const [updateResult] = await connection.execute(updateQuery, updateValues);
-//             console.log(`✅ Main fields updated - affected rows: ${updateResult.affectedRows}`);
-//         }
+//             const [updateResult] = await connection.execute(`
+//                 UPDATE TREATMENT1 SET ${updateFields.join(', ')} WHERE VNO = ?
+//             `, updateValues);
 
-//         // ✅ จัดการ diagnosis - ถ้าไม่ส่งมา ใช้ข้อมูลเดิม
-//         if (req.body.hasOwnProperty('diagnosis')) {
-//             // ส่งมาใหม่ - ลบเก่าแล้วใส่ใหม่
-//             await connection.execute('DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?', [vno]);
-
-//             if (diagnosis && Object.keys(diagnosis).length > 0 &&
-//                 (diagnosis.CHIEF_COMPLAINT || diagnosis.PRESENT_ILL || diagnosis.PHYSICAL_EXAM || diagnosis.PLAN1)) {
-//                 await connection.execute(`
-//                     INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
-//                     VALUES (?, ?, ?, ?, ?)
-//                 `, [vno, diagnosis.CHIEF_COMPLAINT, diagnosis.PRESENT_ILL, diagnosis.PHYSICAL_EXAM, diagnosis.PLAN1]);
-//                 console.log(`Updated diagnosis for VNO: ${vno}`);
+//             if (updateResult.affectedRows === 0) {
+//                 await connection.rollback();
+//                 return res.status(404).json({
+//                     success: false,
+//                     message: 'ไม่พบข้อมูลการรักษาที่ต้องการอัปเดต'
+//                 });
 //             }
-//         } else {
-//             // ไม่ส่งมา - เก็บข้อมูลเดิมไว้
-//             console.log(`Preserved existing diagnosis for VNO: ${vno} (${existingDiagnosis.length} records)`);
 //         }
-
-//         // ✅ จัดการ drugs - ถ้าไม่ส่งมา ใช้ข้อมูลเดิม
-//         if (req.body.hasOwnProperty('drugs')) {
-//             // ส่งมาใหม่ - ลบเก่าแล้วใส่ใหม่
-//             await connection.execute('DELETE FROM TREATMENT1_DRUG WHERE VNO = ?', [vno]);
-
-//             if (Array.isArray(drugs) && drugs.length > 0) {
-//                 for (const drug of drugs) {
-//                     if (drug.DRUG_CODE) {
-//                         await connection.execute(`
-//                             INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-//                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-//                         `, [
-//                             vno, drug.DRUG_CODE, drug.QTY || 1, drug.UNIT_CODE || 'TAB',
-//                             drug.UNIT_PRICE || 0, drug.AMT || 0, drug.NOTE1 || '', drug.TIME1 || ''
-//                         ]);
-//                     }
-//                 }
-//                 console.log(`Updated ${drugs.length} drugs for VNO: ${vno}`);
-//             }
-//         } else if (existingDrugs.length > 0) {
-//             // ไม่ส่งมา แต่มีข้อมูลเดิม - เก็บข้อมูลเดิมไว้
-//             console.log(`Preserved existing drugs for VNO: ${vno} (${existingDrugs.length} records)`);
-//         }
-
-//         // ✅ จัดการ procedures - ถ้าไม่ส่งมา ใช้ข้อมูลเดิม
-//         if (req.body.hasOwnProperty('procedures')) {
-//             // ส่งมาใหม่ - ลบเก่าแล้วใส่ใหม่
-//             await connection.execute('DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?', [vno]);
-
-//             if (Array.isArray(procedures) && procedures.length > 0) {
-//                 for (const proc of procedures) {
-//                     if (proc.MEDICAL_PROCEDURE_CODE || proc.PROCEDURE_CODE) {
-//                         const procedureCode = proc.MEDICAL_PROCEDURE_CODE || proc.PROCEDURE_CODE;
-
-//                         // ตรวจสอบและเพิ่มหัตถการใหม่ถ้าจำเป็น
-//                         await ensureProcedureExists(connection, procedureCode, proc.PROCEDURE_NAME);
-
-//                         await connection.execute(`
-//                             INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
-//                             VALUES (?, ?, ?, ?, ?, ?)
-//                         `, [
-//                             vno, procedureCode, proc.QTY || 1, proc.UNIT_CODE || 'ครั้ง',
-//                             proc.UNIT_PRICE || 0, proc.AMT || 0
-//                         ]);
-//                     }
-//                 }
-//                 console.log(`Updated ${procedures.length} procedures for VNO: ${vno}`);
-//             }
-//         } else if (existingProcedures.length > 0) {
-//             // ไม่ส่งมา แต่มีข้อมูลเดิม - เก็บข้อมูลเดิมไว้
-//             console.log(`Preserved existing procedures for VNO: ${vno} (${existingProcedures.length} records)`);
-//         }
-
-//         // ✅ จัดการ lab tests - ถ้าไม่ส่งมา ใช้ข้อมูลเดิม
-//         if (req.body.hasOwnProperty('labTests')) {
-//             // ส่งมาใหม่ - ลบเก่าแล้วใส่ใหม่
-//             await connection.execute('DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?', [vno]);
-
-//             if (Array.isArray(labTests) && labTests.length > 0) {
-//                 for (const lab of labTests) {
-//                     if (lab.LABCODE) {
-//                         await connection.execute(`
-//                             INSERT INTO TREATMENT1_LABORATORY (VNO, LABCODE) VALUES (?, ?)
-//                         `, [vno, lab.LABCODE]);
-//                     }
-//                 }
-//                 console.log(`Updated ${labTests.length} lab tests for VNO: ${vno}`);
-//             }
-//         } else if (existingLabTests.length > 0) {
-//             // ไม่ส่งมา แต่มีข้อมูลเดิม - เก็บข้อมูลเดิมไว้
-//             console.log(`Preserved existing lab tests for VNO: ${vno} (${existingLabTests.length} records)`);
-//         }
-
-//         // ✅ จัดการ radiological tests - ถ้าไม่ส่งมา ใช้ข้อมูลเดิม
-//         if (req.body.hasOwnProperty('radioTests')) {
-//             // ส่งมาใหม่ - ลบเก่าแล้วใส่ใหม่
-//             await connection.execute('DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?', [vno]);
-
-//             if (Array.isArray(radioTests) && radioTests.length > 0) {
-//                 for (const radio of radioTests) {
-//                     if (radio.RLCODE) {
-//                         await connection.execute(`
-//                             INSERT INTO TREATMENT1_RADIOLOGICAL (VNO, RLCODE) VALUES (?, ?)
-//                         `, [vno, radio.RLCODE]);
-//                     }
-//                 }
-//                 console.log(`Updated ${radioTests.length} radiological tests for VNO: ${vno}`);
-//             }
-//         } else if (existingRadioTests.length > 0) {
-//             // ไม่ส่งมา แต่มีข้อมูลเดิม - เก็บข้อมูลเดิมไว้
-//             console.log(`Preserved existing radio tests for VNO: ${vno} (${existingRadioTests.length} records)`);
-//         }
-
-//         // ตรวจสอบข้อมูลหลังอัพเดท
-//         const [finalCounts] = await connection.execute(`
-//             SELECT 
-//                 (SELECT COUNT(*) FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?) as diagnosis_count,
-//                 (SELECT COUNT(*) FROM TREATMENT1_DRUG WHERE VNO = ?) as drugs_count,
-//                 (SELECT COUNT(*) FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?) as procedures_count,
-//                 (SELECT COUNT(*) FROM TREATMENT1_LABORATORY WHERE VNO = ?) as lab_count,
-//                 (SELECT COUNT(*) FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?) as radio_count
-//         `, [vno, vno, vno, vno, vno]);
-
-//         console.log(`📊 Final data counts after update:`, {
-//             diagnosis: finalCounts[0].diagnosis_count,
-//             drugs: finalCounts[0].drugs_count,
-//             procedures: finalCounts[0].procedures_count,
-//             labTests: finalCounts[0].lab_count,
-//             radioTests: finalCounts[0].radio_count
-//         });
 
 //         await connection.commit();
-//         console.log(`✅ Transaction committed successfully for VNO: ${vno} with all data preserved`);
 
 //         res.json({
 //             success: true,
-//             message: 'อัปเดตข้อมูลการรักษาสำเร็จ (รักษาข้อมูลทั้งหมดไว้)',
-//             data: {
-//                 VNO: vno,
-//                 preservedVitals: mergedVitals,
-//                 dataCounts: {
-//                     diagnosis: finalCounts[0].diagnosis_count,
-//                     drugs: finalCounts[0].drugs_count,
-//                     procedures: finalCounts[0].procedures_count,
-//                     labTests: finalCounts[0].lab_count,
-//                     radioTests: finalCounts[0].radio_count
-//                 }
-//             }
+//             message: 'อัปเดตข้อมูลการรักษาสำเร็จ',
+//             data: { VNO: vno }
 //         });
 
 //     } catch (error) {
 //         if (connection) {
 //             await connection.rollback();
 //         }
-//         console.error(`Error updating treatment VNO: ${req.params.vno}`, error);
+//         console.error('Error updating treatment:', error);
 //         res.status(500).json({
 //             success: false,
 //             message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลการรักษา',
@@ -854,264 +635,135 @@ router.post('/', async (req, res) => {
 //         }
 //     }
 // });
-
+// PUT update entire treatment (TREATMENT1 + diagnosis + drugs + procedures + labTests + radioTests)
 router.put('/:vno', async (req, res) => {
-    const db = await require('../config/db');
-    let connection = null;
-    const version = "PUT_TREATMENT_v2.1"; 
-
+    const version = "PUT_TREATMENT_v3.0_full"; // ✅ ตั้งชื่อเวอร์ชันตรงนี้
     console.log(`🚀 Running ${version} for VNO=${req.params.vno}`);
 
-    // ✅ helper กัน field หาย
-    const safeOrKeep = (value, oldValue) => {
-        if (value === undefined) return oldValue; // ไม่ส่ง → เก็บของเดิม
-        if (value === null || value === '') return null; // ตั้งใจ clear
-        return value;
-    };
-
-    const toNull = (value) => value === undefined || value === '' ? null : value;
+    const db = await require('../config/db');
+    let connection = null;
 
     try {
         connection = await db.getConnection();
         await connection.beginTransaction();
 
         const { vno } = req.params;
-
-        console.log(`🔍 TREATMENT UPDATE: VNO ${vno}`);
-        console.log(`📥 Request body keys:`, Object.keys(req.body));
-
-        // ดึงข้อมูลเก่า
-        const [existingData] = await connection.execute(
-            `SELECT * FROM TREATMENT1 WHERE VNO = ?`,
-            [vno]
-        );
-
-        if (existingData.length === 0) {
-            await connection.rollback();
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบข้อมูลการรักษาที่ต้องการอัปเดต',
-            });
-        }
-
-        const existing = existingData[0];
-
-        // destructure body
         const {
             STATUS1, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1, INVESTIGATION_NOTES,
-            WEIGHT1, HIGHT1, BT1, BP1, BP2, RR1, PR1, SPO2, RDATE,
+            // Payment fields
             TOTAL_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT, PAYMENT_STATUS,
             PAYMENT_DATE, PAYMENT_TIME, PAYMENT_METHOD, RECEIVED_AMOUNT,
             CHANGE_AMOUNT, CASHIER,
-            diagnosis, drugs, procedures, labTests, radioTests,
+            // Related data
+            diagnosis, drugs = [], procedures = [], labTests = [], radioTests = []
         } = req.body;
 
-        // === Update main table dynamic ===
+        // ====== UPDATE MAIN TABLE (TREATMENT1) ======
         const updateFields = [];
         const updateValues = [];
 
-        const addField = (field, value, oldValue) => {
-            updateFields.push(`${field} = ?`);
-            updateValues.push(safeOrKeep(value, oldValue));
-        };
+        if (STATUS1 !== undefined) { updateFields.push('STATUS1 = ?'); updateValues.push(STATUS1); }
+        if (SYMPTOM !== undefined) { updateFields.push('SYMPTOM = ?'); updateValues.push(SYMPTOM); }
+        if (DXCODE !== undefined) { updateFields.push('DXCODE = ?'); updateValues.push(DXCODE); }
+        if (ICD10CODE !== undefined) { updateFields.push('ICD10CODE = ?'); updateValues.push(ICD10CODE); }
+        if (TREATMENT1 !== undefined) { updateFields.push('TREATMENT1 = ?'); updateValues.push(TREATMENT1); }
+        if (INVESTIGATION_NOTES !== undefined) { updateFields.push('INVESTIGATION_NOTES = ?'); updateValues.push(INVESTIGATION_NOTES); }
 
-        addField('STATUS1', STATUS1, existing.STATUS1);
-        addField('SYMPTOM', SYMPTOM, existing.SYMPTOM);
-        addField('DXCODE', DXCODE, existing.DXCODE);
-        addField('ICD10CODE', ICD10CODE, existing.ICD10CODE);
-        addField('TREATMENT1', TREATMENT1, existing.TREATMENT1);
-        addField('INVESTIGATION_NOTES', INVESTIGATION_NOTES, existing.INVESTIGATION_NOTES);
-
-        addField('TOTAL_AMOUNT', TOTAL_AMOUNT, existing.TOTAL_AMOUNT);
-        addField('DISCOUNT_AMOUNT', DISCOUNT_AMOUNT, existing.DISCOUNT_AMOUNT);
-        addField('NET_AMOUNT', NET_AMOUNT, existing.NET_AMOUNT);
-        addField('PAYMENT_STATUS', PAYMENT_STATUS, existing.PAYMENT_STATUS);
-        addField('PAYMENT_DATE', PAYMENT_DATE, existing.PAYMENT_DATE);
-        addField('PAYMENT_TIME', PAYMENT_TIME, existing.PAYMENT_TIME);
-        addField('PAYMENT_METHOD', PAYMENT_METHOD, existing.PAYMENT_METHOD);
-        addField('RECEIVED_AMOUNT', RECEIVED_AMOUNT, existing.RECEIVED_AMOUNT);
-        addField('CHANGE_AMOUNT', CHANGE_AMOUNT, existing.CHANGE_AMOUNT);
-        addField('CASHIER', CASHIER, existing.CASHIER);
-
-        // vitalsign
-        addField('RDATE', RDATE, existing.RDATE);
-        addField('WEIGHT1', WEIGHT1, existing.WEIGHT1);
-        addField('HIGHT1', HIGHT1, existing.HIGHT1);
-        addField('BT1', BT1, existing.BT1);
-        addField('BP1', BP1, existing.BP1);
-        addField('BP2', BP2, existing.BP2);
-        addField('RR1', RR1, existing.RR1);
-        addField('PR1', PR1, existing.PR1);
-        addField('SPO2', SPO2, existing.SPO2);
+        // Payment fields
+        if (TOTAL_AMOUNT !== undefined) { updateFields.push('TOTAL_AMOUNT = ?'); updateValues.push(parseFloat(TOTAL_AMOUNT) || 0); }
+        if (DISCOUNT_AMOUNT !== undefined) { updateFields.push('DISCOUNT_AMOUNT = ?'); updateValues.push(parseFloat(DISCOUNT_AMOUNT) || 0); }
+        if (NET_AMOUNT !== undefined) { updateFields.push('NET_AMOUNT = ?'); updateValues.push(parseFloat(NET_AMOUNT) || 0); }
+        if (PAYMENT_STATUS !== undefined) { updateFields.push('PAYMENT_STATUS = ?'); updateValues.push(PAYMENT_STATUS); }
+        if (PAYMENT_DATE !== undefined) { updateFields.push('PAYMENT_DATE = ?'); updateValues.push(PAYMENT_DATE); }
+        if (PAYMENT_TIME !== undefined) { updateFields.push('PAYMENT_TIME = ?'); updateValues.push(PAYMENT_TIME); }
+        if (PAYMENT_METHOD !== undefined) { updateFields.push('PAYMENT_METHOD = ?'); updateValues.push(PAYMENT_METHOD); }
+        if (RECEIVED_AMOUNT !== undefined) { updateFields.push('RECEIVED_AMOUNT = ?'); updateValues.push(parseFloat(RECEIVED_AMOUNT) || 0); }
+        if (CHANGE_AMOUNT !== undefined) { updateFields.push('CHANGE_AMOUNT = ?'); updateValues.push(parseFloat(CHANGE_AMOUNT) || 0); }
+        if (CASHIER !== undefined) { updateFields.push('CASHIER = ?'); updateValues.push(CASHIER); }
 
         if (updateFields.length > 0) {
             updateValues.push(vno);
-            const updateQuery = `UPDATE TREATMENT1 SET ${updateFields.join(', ')} WHERE VNO = ?`;
-            await connection.execute(updateQuery, updateValues);
-        }
+            const [updateResult] = await connection.execute(`
+                UPDATE TREATMENT1 SET ${updateFields.join(', ')} WHERE VNO = ?
+            `, updateValues);
 
-        // === Diagnosis ===
-        if (req.body.hasOwnProperty('diagnosis') && diagnosis) {
-            const [exist] = await connection.execute(
-                `SELECT * FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?`, [vno]
-            );
-            if (exist.length > 0) {
-                await connection.execute(`
-            UPDATE TREATMENT1_DIAGNOSIS
-            SET CHIEF_COMPLAINT=?, PRESENT_ILL=?, PHYSICAL_EXAM=?, PLAN1=?
-            WHERE VNO=?`,
-                    [
-                        safeOrKeep(diagnosis.CHIEF_COMPLAINT, exist[0].CHIEF_COMPLAINT),
-                        safeOrKeep(diagnosis.PRESENT_ILL, exist[0].PRESENT_ILL),
-                        safeOrKeep(diagnosis.PHYSICAL_EXAM, exist[0].PHYSICAL_EXAM),
-                        safeOrKeep(diagnosis.PLAN1, exist[0].PLAN1),
-                        vno
-                    ]
-                );
-            } else {
-                await connection.execute(`
-            INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
-            VALUES (?, ?, ?, ?, ?)`,
-                    [vno, diagnosis.CHIEF_COMPLAINT, diagnosis.PRESENT_ILL, diagnosis.PHYSICAL_EXAM, diagnosis.PLAN1]
-                );
+            if (updateResult.affectedRows === 0) {
+                await connection.rollback();
+                return res.status(404).json({ success: false, message: 'ไม่พบข้อมูลการรักษาที่ต้องการอัปเดต' });
             }
         }
 
-        // === Drugs ===
-        if (req.body.hasOwnProperty('drugs') && Array.isArray(drugs)) {
+        // ====== UPDATE DIAGNOSIS ======
+        if (diagnosis !== undefined) {
+            await connection.execute('DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?', [vno]);
+            if (diagnosis) {
+                await connection.execute(`
+                    INSERT INTO TREATMENT1_DIAGNOSIS (VNO, DIAGNOSIS) VALUES (?, ?)
+                `, [vno, diagnosis]);
+            }
+        }
+
+        // ====== UPDATE DRUGS ======
+        if (drugs !== undefined) {
+            await connection.execute('DELETE FROM TREATMENT1_DRUG WHERE VNO = ?', [vno]);
             for (const drug of drugs) {
-                if (!drug.DRUG_CODE) continue;
-                const [exist] = await connection.execute(
-                    `SELECT * FROM TREATMENT1_DRUG WHERE VNO=? AND DRUG_CODE=?`,
-                    [vno, drug.DRUG_CODE]
-                );
-                if (exist.length > 0) {
-                    await connection.execute(`
-              UPDATE TREATMENT1_DRUG
-              SET QTY=?, UNIT_CODE=?, UNIT_PRICE=?, AMT=?, NOTE1=?, TIME1=?
-              WHERE VNO=? AND DRUG_CODE=?`,
-                        [
-                            safeOrKeep(drug.QTY, exist[0].QTY),
-                            safeOrKeep(drug.UNIT_CODE, exist[0].UNIT_CODE),
-                            safeOrKeep(drug.UNIT_PRICE, exist[0].UNIT_PRICE),
-                            safeOrKeep(drug.AMT, exist[0].AMT),
-                            safeOrKeep(drug.NOTE1, exist[0].NOTE1),
-                            safeOrKeep(drug.TIME1, exist[0].TIME1),
-                            vno, drug.DRUG_CODE
-                        ]
-                    );
-                } else {
-                    await connection.execute(`
-              INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [vno, drug.DRUG_CODE, drug.QTY || 1, drug.UNIT_CODE || 'TAB',
-                            drug.UNIT_PRICE || 0, drug.AMT || 0, drug.NOTE1 || '', drug.TIME1 || '']
-                    );
-                }
+                await connection.execute(`
+                    INSERT INTO TREATMENT1_DRUG 
+                      (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `, [vno, drug.DRUG_CODE, drug.QTY, drug.UNIT_CODE, drug.UNIT_PRICE, drug.AMT, drug.NOTE1, drug.TIME1]);
             }
         }
 
-        // === Procedures ===
-        if (req.body.hasOwnProperty('procedures') && Array.isArray(procedures)) {
+        // ====== UPDATE PROCEDURES ======
+        if (procedures !== undefined) {
+            await connection.execute('DELETE FROM TREATMENT1_PROCEDURE WHERE VNO = ?', [vno]);
             for (const proc of procedures) {
-                if (!proc.PROC_CODE) continue;
-                const [exist] = await connection.execute(
-                    `SELECT * FROM TREATMENT1_PROC WHERE VNO=? AND PROC_CODE=?`,
-                    [vno, proc.PROC_CODE]
-                );
-                if (exist.length > 0) {
-                    await connection.execute(`
-              UPDATE TREATMENT1_PROC
-              SET QTY=?, PRICE=?, NOTE1=?
-              WHERE VNO=? AND PROC_CODE=?`,
-                        [
-                            safeOrKeep(proc.QTY, exist[0].QTY),
-                            safeOrKeep(proc.PRICE, exist[0].PRICE),
-                            safeOrKeep(proc.NOTE1, exist[0].NOTE1),
-                            vno, proc.PROC_CODE
-                        ]
-                    );
-                } else {
-                    await connection.execute(`
-              INSERT INTO TREATMENT1_PROC (VNO, PROC_CODE, QTY, PRICE, NOTE1)
-              VALUES (?, ?, ?, ?, ?)`,
-                        [vno, proc.PROC_CODE, proc.QTY || 1, proc.PRICE || 0, proc.NOTE1 || '']
-                    );
-                }
+                await connection.execute(`
+                    INSERT INTO TREATMENT1_PROCEDURE 
+                      (VNO, PROC_CODE, QTY, UNIT_PRICE, AMT, NOTE1) 
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `, [vno, proc.PROC_CODE, proc.QTY, proc.UNIT_PRICE, proc.AMT, proc.NOTE1]);
             }
         }
 
-        // === Lab Tests ===
-        if (req.body.hasOwnProperty('labTests') && Array.isArray(labTests)) {
+        // ====== UPDATE LAB TESTS ======
+        if (labTests !== undefined) {
+            await connection.execute('DELETE FROM TREATMENT1_LAB WHERE VNO = ?', [vno]);
             for (const lab of labTests) {
-                if (!lab.LAB_CODE) continue;
-                const [exist] = await connection.execute(
-                    `SELECT * FROM TREATMENT1_LAB WHERE VNO=? AND LAB_CODE=?`,
-                    [vno, lab.LAB_CODE]
-                );
-                if (exist.length > 0) {
-                    await connection.execute(`
-              UPDATE TREATMENT1_LAB
-              SET RESULT=?, NOTE1=?
-              WHERE VNO=? AND LAB_CODE=?`,
-                        [
-                            safeOrKeep(lab.RESULT, exist[0].RESULT),
-                            safeOrKeep(lab.NOTE1, exist[0].NOTE1),
-                            vno, lab.LAB_CODE
-                        ]
-                    );
-                } else {
-                    await connection.execute(`
-              INSERT INTO TREATMENT1_LAB (VNO, LAB_CODE, RESULT, NOTE1)
-              VALUES (?, ?, ?, ?)`,
-                        [vno, lab.LAB_CODE, lab.RESULT || '', lab.NOTE1 || '']
-                    );
-                }
+                await connection.execute(`
+                    INSERT INTO TREATMENT1_LAB 
+                      (VNO, LAB_CODE, RESULT, NOTE1) 
+                    VALUES (?, ?, ?, ?)
+                `, [vno, lab.LAB_CODE, lab.RESULT, lab.NOTE1]);
             }
         }
 
-        // === Radio Tests ===
-        if (req.body.hasOwnProperty('radioTests') && Array.isArray(radioTests)) {
+        // ====== UPDATE RADIO TESTS ======
+        if (radioTests !== undefined) {
+            await connection.execute('DELETE FROM TREATMENT1_RADIO WHERE VNO = ?', [vno]);
             for (const radio of radioTests) {
-                if (!radio.RADIO_CODE) continue;
-                const [exist] = await connection.execute(
-                    `SELECT * FROM TREATMENT1_RADIO WHERE VNO=? AND RADIO_CODE=?`,
-                    [vno, radio.RADIO_CODE]
-                );
-                if (exist.length > 0) {
-                    await connection.execute(`
-              UPDATE TREATMENT1_RADIO
-              SET RESULT=?, NOTE1=?
-              WHERE VNO=? AND RADIO_CODE=?`,
-                        [
-                            safeOrKeep(radio.RESULT, exist[0].RESULT),
-                            safeOrKeep(radio.NOTE1, exist[0].NOTE1),
-                            vno, radio.RADIO_CODE
-                        ]
-                    );
-                } else {
-                    await connection.execute(`
-              INSERT INTO TREATMENT1_RADIO (VNO, RADIO_CODE, RESULT, NOTE1)
-              VALUES (?, ?, ?, ?)`,
-                        [vno, radio.RADIO_CODE, radio.RESULT || '', radio.NOTE1 || '']
-                    );
-                }
+                await connection.execute(`
+                    INSERT INTO TREATMENT1_RADIO 
+                      (VNO, RADIO_CODE, RESULT, NOTE1) 
+                    VALUES (?, ?, ?, ?)
+                `, [vno, radio.RADIO_CODE, radio.RESULT, radio.NOTE1]);
             }
         }
 
         await connection.commit();
-        res.json({ success: true, message: 'อัปเดตข้อมูลสำเร็จ', VNO: vno });
+        console.log(`✅ ${version} SUCCESS for VNO=${vno}`);
+
+        res.json({ success: true, message: 'อัปเดตข้อมูลการรักษาสำเร็จ', data: { VNO: vno } });
 
     } catch (error) {
-        if (connection) await connection.rollback();
-        console.error(`❌ Error updating treatment VNO: ${req.params.vno}`, error);
-        res.status(500).json({ success: false, message: error.message });
+        if (connection) { await connection.rollback(); }
+        console.error(`❌ ${version} ERROR for VNO=${req.params.vno}`, error);
+        res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลการรักษา', error: error.message });
     } finally {
-        if (connection) connection.release();
+        if (connection) { connection.release(); }
     }
 });
-
-
 
 
 // GET treatment statistics
