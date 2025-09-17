@@ -677,24 +677,38 @@ router.put('/:vno', async (req, res) => {
         });
 
         // Update main treatment
+        // Update main treatment พร้อม vitalsign
         const [updateResult] = await connection.execute(`
-            UPDATE TREATMENT1 SET 
-                SYMPTOM = COALESCE(?, SYMPTOM), 
-                STATUS1 = COALESCE(?, STATUS1),
-                DXCODE = COALESCE(?, DXCODE),
-                ICD10CODE = COALESCE(?, ICD10CODE),
-                TREATMENT1 = COALESCE(?, TREATMENT1),
-                INVESTIGATION_NOTES = COALESCE(?, INVESTIGATION_NOTES)
-            WHERE VNO = ?
-        `, [
+    UPDATE TREATMENT1 SET 
+        SYMPTOM = COALESCE(?, SYMPTOM), 
+        STATUS1 = COALESCE(?, STATUS1),
+        DXCODE = COALESCE(?, DXCODE),
+        ICD10CODE = COALESCE(?, ICD10CODE),
+        TREATMENT1 = COALESCE(?, TREATMENT1),
+        INVESTIGATION_NOTES = COALESCE(?, INVESTIGATION_NOTES),
+        WEIGHT1 = COALESCE(?, WEIGHT1),
+        HIGHT1 = COALESCE(?, HIGHT1),
+        BT1 = COALESCE(?, BT1),
+        PR1 = COALESCE(?, PR1),
+        RR1 = COALESCE(?, RR1),
+        BP1 = COALESCE(?, BP1)
+    WHERE VNO = ?
+`, [
             toNull(SYMPTOM),
             toNull(STATUS1),
             toNull(DXCODE),
             toNull(ICD10CODE),
             toNull(TREATMENT1),
             toNull(INVESTIGATION_NOTES),
+            toNull(WEIGHT1),
+            toNull(HIGHT1),
+            toNull(BT1),
+            toNull(PR1),
+            toNull(RR1),
+            toNull(BP1),
             vno
         ]);
+
 
         if (updateResult.affectedRows === 0) {
             await connection.rollback();
