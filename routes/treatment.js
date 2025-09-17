@@ -505,9 +505,12 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /:vno 
+// PUT /:vno - Complete function with vitals preservation
 router.put('/:vno', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
+
+    const toNull = (value) => value === undefined || value === '' ? null : value;
 
     try {
         connection = await db.getConnection();
@@ -556,7 +559,22 @@ router.put('/:vno', async (req, res) => {
             diagnosis, drugs, procedures, labTests, radioTests
         } = req.body;
 
-        // สร้าง dynamic update query - เฉพาะฟิลด์ที่ส่งมา
+        // ✅ สร้าง merged vital signs data - รักษาค่าเดิมไว้ถ้าไม่ส่งมา
+        const mergedVitals = {
+            RDATE: toNull(RDATE) || existing.RDATE,
+            WEIGHT1: WEIGHT1 !== undefined ? (parseFloat(WEIGHT1) || null) : existing.WEIGHT1,
+            HIGHT1: HIGHT1 !== undefined ? (parseFloat(HIGHT1) || null) : existing.HIGHT1,
+            BT1: BT1 !== undefined ? (parseFloat(BT1) || null) : existing.BT1,
+            BP1: BP1 !== undefined ? (parseInt(BP1) || null) : existing.BP1,
+            BP2: BP2 !== undefined ? (parseInt(BP2) || null) : existing.BP2,
+            RR1: RR1 !== undefined ? (parseInt(RR1) || null) : existing.RR1,
+            PR1: PR1 !== undefined ? (parseInt(PR1) || null) : existing.PR1,
+            SPO2: SPO2 !== undefined ? (parseInt(SPO2) || null) : existing.SPO2
+        };
+
+        console.log(`🔄 Merged vital signs:`, mergedVitals);
+
+        // สร้าง dynamic update query
         const updateFields = [];
         const updateValues = [];
 
@@ -570,7 +588,7 @@ router.put('/:vno', async (req, res) => {
         if (req.body.hasOwnProperty('SYMPTOM') && SYMPTOM !== undefined) {
             updateFields.push('SYMPTOM = ?');
             updateValues.push(SYMPTOM);
-            console.log(`📝 Will update SYMPTOM: ${existing.SYMPTOM} -> ${SYMPTOM}`);
+            console.log(`📝 Will update SYMPTOM`);
         }
 
         if (req.body.hasOwnProperty('DXCODE') && DXCODE !== undefined) {
@@ -587,7 +605,7 @@ router.put('/:vno', async (req, res) => {
         if (req.body.hasOwnProperty('TREATMENT1') && TREATMENT1 !== undefined) {
             updateFields.push('TREATMENT1 = ?');
             updateValues.push(TREATMENT1);
-            console.log(`📝 Will update TREATMENT1: ${existing.TREATMENT1?.substring(0, 50)}... -> ${TREATMENT1?.substring(0, 50)}...`);
+            console.log(`📝 Will update TREATMENT1`);
         }
 
         if (req.body.hasOwnProperty('INVESTIGATION_NOTES') && INVESTIGATION_NOTES !== undefined) {
@@ -595,60 +613,29 @@ router.put('/:vno', async (req, res) => {
             updateValues.push(INVESTIGATION_NOTES);
         }
 
-        // ✅ Vital Signs - อัพเดทเฉพาะเมื่อมีการส่งมา ไม่งั้นใช้ค่าเดิม
-        if (req.body.hasOwnProperty('WEIGHT1') && WEIGHT1 !== undefined) {
-            updateFields.push('WEIGHT1 = ?');
-            updateValues.push(parseFloat(WEIGHT1) || null);
-            console.log(`📝 Will update WEIGHT1: ${existing.WEIGHT1} -> ${WEIGHT1}`);
-        }
-
-        if (req.body.hasOwnProperty('HIGHT1') && HIGHT1 !== undefined) {
-            updateFields.push('HIGHT1 = ?');
-            updateValues.push(parseFloat(HIGHT1) || null);
-            console.log(`📝 Will update HIGHT1: ${existing.HIGHT1} -> ${HIGHT1}`);
-        }
-
-        if (req.body.hasOwnProperty('BT1') && BT1 !== undefined) {
-            updateFields.push('BT1 = ?');
-            updateValues.push(parseFloat(BT1) || null);
-            console.log(`📝 Will update BT1: ${existing.BT1} -> ${BT1}`);
-        }
-
-        if (req.body.hasOwnProperty('BP1') && BP1 !== undefined) {
-            updateFields.push('BP1 = ?');
-            updateValues.push(parseInt(BP1) || null);
-            console.log(`📝 Will update BP1: ${existing.BP1} -> ${BP1}`);
-        }
-
-        if (req.body.hasOwnProperty('BP2') && BP2 !== undefined) {
-            updateFields.push('BP2 = ?');
-            updateValues.push(parseInt(BP2) || null);
-            console.log(`📝 Will update BP2: ${existing.BP2} -> ${BP2}`);
-        }
-
-        if (req.body.hasOwnProperty('RR1') && RR1 !== undefined) {
-            updateFields.push('RR1 = ?');
-            updateValues.push(parseInt(RR1) || null);
-            console.log(`📝 Will update RR1: ${existing.RR1} -> ${RR1}`);
-        }
-
-        if (req.body.hasOwnProperty('PR1') && PR1 !== undefined) {
-            updateFields.push('PR1 = ?');
-            updateValues.push(parseInt(PR1) || null);
-            console.log(`📝 Will update PR1: ${existing.PR1} -> ${PR1}`);
-        }
-
-        if (req.body.hasOwnProperty('SPO2') && SPO2 !== undefined) {
-            updateFields.push('SPO2 = ?');
-            updateValues.push(parseInt(SPO2) || null);
-            console.log(`📝 Will update SPO2: ${existing.SPO2} -> ${SPO2}`);
-        }
-
-        if (req.body.hasOwnProperty('RDATE') && RDATE !== undefined) {
-            updateFields.push('RDATE = ?');
-            updateValues.push(RDATE);
-            console.log(`📝 Will update RDATE: ${existing.RDATE} -> ${RDATE}`);
-        }
+        // ✅ เพิ่ม vital signs ทุกตัวเข้าไปใน update ทุกครั้ง
+        updateFields.push(
+            'RDATE = ?',
+            'WEIGHT1 = ?',
+            'HIGHT1 = ?',
+            'BT1 = ?',
+            'BP1 = ?',
+            'BP2 = ?',
+            'RR1 = ?',
+            'PR1 = ?',
+            'SPO2 = ?'
+        );
+        updateValues.push(
+            mergedVitals.RDATE,
+            mergedVitals.WEIGHT1,
+            mergedVitals.HIGHT1,
+            mergedVitals.BT1,
+            mergedVitals.BP1,
+            mergedVitals.BP2,
+            mergedVitals.RR1,
+            mergedVitals.PR1,
+            mergedVitals.SPO2
+        );
 
         // Payment fields
         if (req.body.hasOwnProperty('TOTAL_AMOUNT') && TOTAL_AMOUNT !== undefined) {
@@ -692,18 +679,25 @@ router.put('/:vno', async (req, res) => {
             updateValues.push(CASHIER);
         }
 
-        // อัพเดทข้อมูลหลัก - เฉพาะฟิลด์ที่มีการส่งมา
+        // อัพเดทข้อมูลหลัก
         if (updateFields.length > 0) {
             updateValues.push(vno);
 
             const updateQuery = `UPDATE TREATMENT1 SET ${updateFields.join(', ')} WHERE VNO = ?`;
             console.log(`📝 Update query: ${updateQuery}`);
-            console.log(`📝 Update values:`, updateValues);
+            console.log(`📝 Vital signs preserved:`, {
+                WEIGHT1: mergedVitals.WEIGHT1,
+                HIGHT1: mergedVitals.HIGHT1,
+                BT1: mergedVitals.BT1,
+                BP1: mergedVitals.BP1,
+                BP2: mergedVitals.BP2,
+                RR1: mergedVitals.RR1,
+                PR1: mergedVitals.PR1,
+                SPO2: mergedVitals.SPO2
+            });
 
             const [updateResult] = await connection.execute(updateQuery, updateValues);
-            console.log(`✅ Main fields updated - affected rows: ${updateResult.affectedRows}`);
-        } else {
-            console.log(`⚠️ No main fields to update`);
+            console.log(`✅ Main fields updated with preserved vitals - affected rows: ${updateResult.affectedRows}`);
         }
 
         // อัปเดต diagnosis - เฉพาะเมื่อมีการส่งมาใน request body
@@ -727,7 +721,7 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // ✅ เพิ่มข้อมูลยาใหม่ - ลบของเก่าก่อนเพื่อไม่ให้ซ้ำ
+        // เพิ่มข้อมูลยาใหม่ - ลบของเก่าก่อนเพื่อไม่ให้ซ้ำ
         if (req.body.hasOwnProperty('drugs')) {
             // ลบข้อมูลยาเก่าทั้งหมดก่อน
             await connection.execute('DELETE FROM TREATMENT1_DRUG WHERE VNO = ?', [vno]);
@@ -755,7 +749,7 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // ✅ เพิ่มข้อมูลหัตถการใหม่ - ลบของเก่าก่อนเพื่อไม่ให้ซ้ำ
+        // เพิ่มข้อมูลหัตถการใหม่ - ลบของเก่าก่อนเพื่อไม่ให้ซ้ำ
         if (req.body.hasOwnProperty('procedures')) {
             // ลบข้อมูลหัตถการเก่าทั้งหมดก่อน
             await connection.execute('DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?', [vno]);
@@ -855,8 +849,11 @@ router.put('/:vno', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'อัปเดตข้อมูลการรักษาสำเร็จ',
-            data: { VNO: vno }
+            message: 'อัปเดตข้อมูลการรักษาสำเร็จ (รักษา vital signs ไว้)',
+            data: {
+                VNO: vno,
+                preservedVitals: mergedVitals
+            }
         });
 
     } catch (error) {
