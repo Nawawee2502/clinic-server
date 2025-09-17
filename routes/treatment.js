@@ -505,6 +505,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /:vno 
+// แก้ไข PUT /:vno route ใน treatments.js
 router.put('/:vno', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
@@ -516,7 +517,7 @@ router.put('/:vno', async (req, res) => {
         const { vno } = req.params;
 
         console.log(`🔍 TREATMENT UPDATE: VNO ${vno}`);
-        console.log(`📥 Request body keys:`, Object.keys(req.body));
+        console.log(`📥 Request body:`, req.body);
 
         // ดึงข้อมูลเดิมก่อนอัพเดท
         const [existingData] = await connection.execute(`
@@ -532,16 +533,11 @@ router.put('/:vno', async (req, res) => {
         }
 
         const existing = existingData[0];
-        console.log(`📋 Existing important data:`, {
-            STATUS1: existing.STATUS1,
-            SYMPTOM: existing.SYMPTOM,
-            DXCODE: existing.DXCODE,
-            TREATMENT1: existing.TREATMENT1,
-            INVESTIGATION_NOTES: existing.INVESTIGATION_NOTES
-        });
 
         const {
             STATUS1, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1, INVESTIGATION_NOTES,
+            // Vital Signs - เพิ่มฟิลด์เหล่านี้
+            WEIGHT1, HIGHT1, BT1, BP1, BP2, RR1, PR1, SPO2, RDATE,
             // Payment fields
             TOTAL_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT, PAYMENT_STATUS,
             PAYMENT_DATE, PAYMENT_TIME, PAYMENT_METHOD, RECEIVED_AMOUNT,
@@ -550,44 +546,85 @@ router.put('/:vno', async (req, res) => {
             diagnosis, drugs, procedures, labTests, radioTests
         } = req.body;
 
-        // สร้าง dynamic update query - เฉพาะฟิลด์ที่ส่งมาและไม่เป็น undefined
+        // สร้าง dynamic update query - รวมฟิลด์ที่ขาดหายไป
         const updateFields = [];
         const updateValues = [];
 
+        // ฟิลด์หลักที่ต้องอัพเดท
         if (req.body.hasOwnProperty('STATUS1') && STATUS1 !== undefined) {
             updateFields.push('STATUS1 = ?');
             updateValues.push(STATUS1);
-            console.log(`📝 Will update STATUS1: ${existing.STATUS1} -> ${STATUS1}`);
         }
 
         if (req.body.hasOwnProperty('SYMPTOM') && SYMPTOM !== undefined) {
             updateFields.push('SYMPTOM = ?');
             updateValues.push(SYMPTOM);
-            console.log(`📝 Will update SYMPTOM: ${existing.SYMPTOM} -> ${SYMPTOM}`);
         }
 
         if (req.body.hasOwnProperty('DXCODE') && DXCODE !== undefined) {
             updateFields.push('DXCODE = ?');
             updateValues.push(DXCODE);
-            console.log(`📝 Will update DXCODE: ${existing.DXCODE} -> ${DXCODE}`);
         }
 
         if (req.body.hasOwnProperty('ICD10CODE') && ICD10CODE !== undefined) {
             updateFields.push('ICD10CODE = ?');
             updateValues.push(ICD10CODE);
-            console.log(`📝 Will update ICD10CODE: ${existing.ICD10CODE} -> ${ICD10CODE}`);
         }
 
         if (req.body.hasOwnProperty('TREATMENT1') && TREATMENT1 !== undefined) {
             updateFields.push('TREATMENT1 = ?');
             updateValues.push(TREATMENT1);
-            console.log(`📝 Will update TREATMENT1: ${existing.TREATMENT1} -> ${TREATMENT1}`);
         }
 
         if (req.body.hasOwnProperty('INVESTIGATION_NOTES') && INVESTIGATION_NOTES !== undefined) {
             updateFields.push('INVESTIGATION_NOTES = ?');
             updateValues.push(INVESTIGATION_NOTES);
-            console.log(`📝 Will update INVESTIGATION_NOTES: ${existing.INVESTIGATION_NOTES} -> ${INVESTIGATION_NOTES}`);
+        }
+
+        // ✅ เพิ่ม Vital Signs fields ที่หายไป
+        if (req.body.hasOwnProperty('WEIGHT1') && WEIGHT1 !== undefined) {
+            updateFields.push('WEIGHT1 = ?');
+            updateValues.push(parseFloat(WEIGHT1) || null);
+        }
+
+        if (req.body.hasOwnProperty('HIGHT1') && HIGHT1 !== undefined) {
+            updateFields.push('HIGHT1 = ?');
+            updateValues.push(parseFloat(HIGHT1) || null);
+        }
+
+        if (req.body.hasOwnProperty('BT1') && BT1 !== undefined) {
+            updateFields.push('BT1 = ?');
+            updateValues.push(parseFloat(BT1) || null);
+        }
+
+        if (req.body.hasOwnProperty('BP1') && BP1 !== undefined) {
+            updateFields.push('BP1 = ?');
+            updateValues.push(parseInt(BP1) || null);
+        }
+
+        if (req.body.hasOwnProperty('BP2') && BP2 !== undefined) {
+            updateFields.push('BP2 = ?');
+            updateValues.push(parseInt(BP2) || null);
+        }
+
+        if (req.body.hasOwnProperty('RR1') && RR1 !== undefined) {
+            updateFields.push('RR1 = ?');
+            updateValues.push(parseInt(RR1) || null);
+        }
+
+        if (req.body.hasOwnProperty('PR1') && PR1 !== undefined) {
+            updateFields.push('PR1 = ?');
+            updateValues.push(parseInt(PR1) || null);
+        }
+
+        if (req.body.hasOwnProperty('SPO2') && SPO2 !== undefined) {
+            updateFields.push('SPO2 = ?');
+            updateValues.push(parseInt(SPO2) || null);
+        }
+
+        if (req.body.hasOwnProperty('RDATE') && RDATE !== undefined) {
+            updateFields.push('RDATE = ?');
+            updateValues.push(RDATE);
         }
 
         // Payment fields
@@ -762,44 +799,6 @@ router.put('/:vno', async (req, res) => {
                 } else {
                     console.log(`Cleared radiological tests for VNO: ${vno}`);
                 }
-            }
-        }
-
-        // ตรวจสอบข้อมูลหลังอัพเดท
-        const [afterUpdate] = await connection.execute(`
-            SELECT STATUS1, SYMPTOM, DXCODE, TREATMENT1, INVESTIGATION_NOTES 
-            FROM TREATMENT1 WHERE VNO = ?
-        `, [vno]);
-
-        if (afterUpdate.length > 0) {
-            console.log(`📋 After update data:`, afterUpdate[0]);
-
-            // เปรียบเทียบข้อมูลสำคัญก่อนและหลัง
-            const criticalFields = ['SYMPTOM', 'DXCODE', 'TREATMENT1', 'INVESTIGATION_NOTES'];
-            let dataLoss = false;
-            let lostFields = [];
-
-            criticalFields.forEach(field => {
-                // ถ้าข้อมูลเดิมมีค่า แต่หลังอัพเดทเป็น null/empty และไม่ได้ส่งมาในการอัพเดท
-                if (existing[field] &&
-                    !afterUpdate[0][field] &&
-                    !req.body.hasOwnProperty(field)) {
-                    dataLoss = true;
-                    lostFields.push(field);
-                }
-            });
-
-            if (dataLoss) {
-                console.log(`🚨 DATA LOSS DETECTED! Lost fields: ${lostFields.join(', ')}`);
-                await connection.rollback();
-                return res.status(500).json({
-                    success: false,
-                    message: `ตรวจพบการสูญหายของข้อมูลในฟิลด์: ${lostFields.join(', ')}`,
-                    lostFields: lostFields,
-                    existingData: existing,
-                    afterUpdate: afterUpdate[0],
-                    requestBody: Object.keys(req.body)
-                });
             }
         }
 
