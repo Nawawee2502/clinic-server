@@ -636,132 +636,163 @@ router.post('/', async (req, res) => {
 //     }
 // });
 // PUT update entire treatment (TREATMENT1 + diagnosis + drugs + procedures + labTests + radioTests)
-router.put('/:vno', async (req, res) => {
-    const version = "PUT_TREATMENT_v3.0_full"; // ✅ ตั้งชื่อเวอร์ชันตรงนี้
-    console.log(`🚀 Running ${version} for VNO=${req.params.vno}`);
 
-    const db = await require('../config/db');
-    let connection = null;
-
+router.get('/:vno', async (req, res) => {
     try {
-        connection = await db.getConnection();
-        await connection.beginTransaction();
-
+        const db = await require('../config/db');
         const { vno } = req.params;
-        const {
-            STATUS1, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1, INVESTIGATION_NOTES,
-            // Payment fields
-            TOTAL_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT, PAYMENT_STATUS,
-            PAYMENT_DATE, PAYMENT_TIME, PAYMENT_METHOD, RECEIVED_AMOUNT,
-            CHANGE_AMOUNT, CASHIER,
-            // Related data
-            diagnosis, drugs = [], procedures = [], labTests = [], radioTests = []
-        } = req.body;
 
-        // ====== UPDATE MAIN TABLE (TREATMENT1) ======
-        const updateFields = [];
-        const updateValues = [];
+        console.log(`Fetching treatment details for VNO: ${vno}`);
 
-        if (STATUS1 !== undefined) { updateFields.push('STATUS1 = ?'); updateValues.push(STATUS1); }
-        if (SYMPTOM !== undefined) { updateFields.push('SYMPTOM = ?'); updateValues.push(SYMPTOM); }
-        if (DXCODE !== undefined) { updateFields.push('DXCODE = ?'); updateValues.push(DXCODE); }
-        if (ICD10CODE !== undefined) { updateFields.push('ICD10CODE = ?'); updateValues.push(ICD10CODE); }
-        if (TREATMENT1 !== undefined) { updateFields.push('TREATMENT1 = ?'); updateValues.push(TREATMENT1); }
-        if (INVESTIGATION_NOTES !== undefined) { updateFields.push('INVESTIGATION_NOTES = ?'); updateValues.push(INVESTIGATION_NOTES); }
+        // Get main treatment info
+        const [treatment] = await db.execute(`
+            SELECT 
+                t.*,
+                p.PRENAME, p.NAME1, p.SURNAME, p.AGE, p.SEX, p.IDNO, p.TEL1,
+                p.BLOOD_GROUP1, p.ADDR1, p.DRUG_ALLERGY, p.FOOD_ALLERGIES,
+                e.EMP_NAME,
+                er.EMP_NAME as RECORDER_NAME,
+                dx.DXNAME_THAI, dx.DXNAME_ENG,
+                icd.ICD10NAME_THAI, icd.ICD10NAME_ENG
+            FROM TREATMENT1 t
+            LEFT JOIN patient1 p ON t.HNNO = p.HNCODE
+            LEFT JOIN EMPLOYEE1 e ON t.EMP_CODE = e.EMP_CODE
+            LEFT JOIN EMPLOYEE1 er ON t.EMP_CODE1 = er.EMP_CODE
+            LEFT JOIN TABLE_DX dx ON t.DXCODE = dx.DXCODE
+            LEFT JOIN TABLE_ICD10 icd ON t.ICD10CODE = icd.ICD10CODE
+            WHERE t.VNO = ?
+        `, [vno]);
 
-        // Payment fields
-        if (TOTAL_AMOUNT !== undefined) { updateFields.push('TOTAL_AMOUNT = ?'); updateValues.push(parseFloat(TOTAL_AMOUNT) || 0); }
-        if (DISCOUNT_AMOUNT !== undefined) { updateFields.push('DISCOUNT_AMOUNT = ?'); updateValues.push(parseFloat(DISCOUNT_AMOUNT) || 0); }
-        if (NET_AMOUNT !== undefined) { updateFields.push('NET_AMOUNT = ?'); updateValues.push(parseFloat(NET_AMOUNT) || 0); }
-        if (PAYMENT_STATUS !== undefined) { updateFields.push('PAYMENT_STATUS = ?'); updateValues.push(PAYMENT_STATUS); }
-        if (PAYMENT_DATE !== undefined) { updateFields.push('PAYMENT_DATE = ?'); updateValues.push(PAYMENT_DATE); }
-        if (PAYMENT_TIME !== undefined) { updateFields.push('PAYMENT_TIME = ?'); updateValues.push(PAYMENT_TIME); }
-        if (PAYMENT_METHOD !== undefined) { updateFields.push('PAYMENT_METHOD = ?'); updateValues.push(PAYMENT_METHOD); }
-        if (RECEIVED_AMOUNT !== undefined) { updateFields.push('RECEIVED_AMOUNT = ?'); updateValues.push(parseFloat(RECEIVED_AMOUNT) || 0); }
-        if (CHANGE_AMOUNT !== undefined) { updateFields.push('CHANGE_AMOUNT = ?'); updateValues.push(parseFloat(CHANGE_AMOUNT) || 0); }
-        if (CASHIER !== undefined) { updateFields.push('CASHIER = ?'); updateValues.push(CASHIER); }
-
-        if (updateFields.length > 0) {
-            updateValues.push(vno);
-            const [updateResult] = await connection.execute(`
-                UPDATE TREATMENT1 SET ${updateFields.join(', ')} WHERE VNO = ?
-            `, updateValues);
-
-            if (updateResult.affectedRows === 0) {
-                await connection.rollback();
-                return res.status(404).json({ success: false, message: 'ไม่พบข้อมูลการรักษาที่ต้องการอัปเดต' });
-            }
+        if (treatment.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'ไม่พบข้อมูลการรักษา'
+            });
         }
 
-        // ====== UPDATE DIAGNOSIS ======
-        if (diagnosis !== undefined) {
-            await connection.execute('DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?', [vno]);
-            if (diagnosis) {
-                await connection.execute(`
-                    INSERT INTO TREATMENT1_DIAGNOSIS (VNO, DIAGNOSIS) VALUES (?, ?)
-                `, [vno, diagnosis]);
+        console.log(`Found treatment record for VNO: ${vno}`);
+
+        // Get diagnosis details
+        const [diagnosis] = await db.execute(`
+            SELECT * FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?
+        `, [vno]);
+
+        // Get drugs - แก้ไขให้ใช้เฉพาะ fields ที่มีจริงใน TABLE_DRUG
+        const [drugs] = await db.execute(`
+            SELECT 
+                td.VNO,
+                td.DRUG_CODE,
+                td.QTY,
+                td.UNIT_CODE,
+                td.UNIT_PRICE,
+                td.AMT,
+                td.NOTE1,
+                td.TIME1,
+                COALESCE(d.GENERIC_NAME, 'ยาไม่ระบุ') as GENERIC_NAME,
+                COALESCE(d.TRADE_NAME, '') as TRADE_NAME,
+                COALESCE(d.UNIT_PRICE, 0) as DRUG_UNIT_PRICE,
+                COALESCE(u.UNIT_NAME, td.UNIT_CODE) as UNIT_NAME
+            FROM TREATMENT1_DRUG td
+            LEFT JOIN TABLE_DRUG d ON td.DRUG_CODE = d.DRUG_CODE
+            LEFT JOIN TABLE_UNIT u ON td.UNIT_CODE = u.UNIT_CODE
+            WHERE td.VNO = ?
+            ORDER BY td.DRUG_CODE
+        `, [vno]);
+
+        console.log(`Found ${drugs.length} drugs for VNO: ${vno}`);
+
+        // Get procedures
+        const [procedures] = await db.execute(`
+            SELECT 
+                tmp.VNO,
+                tmp.MEDICAL_PROCEDURE_CODE,
+                tmp.QTY,
+                tmp.UNIT_CODE,
+                tmp.UNIT_PRICE,
+                tmp.AMT,
+                COALESCE(mp.MED_PRO_NAME_THAI, 'หัตถการไม่ระบุ') as MED_PRO_NAME_THAI,
+                COALESCE(mp.MED_PRO_NAME_ENG, '') as MED_PRO_NAME_ENG,
+                COALESCE(mp.MED_PRO_TYPE, 'ทั่วไป') as MED_PRO_TYPE,
+                COALESCE(u.UNIT_NAME, tmp.UNIT_CODE) as UNIT_NAME
+            FROM TREATMENT1_MED_PROCEDURE tmp
+            LEFT JOIN TABLE_MEDICAL_PROCEDURES mp ON tmp.MEDICAL_PROCEDURE_CODE = mp.MEDICAL_PROCEDURE_CODE
+            LEFT JOIN TABLE_UNIT u ON tmp.UNIT_CODE = u.UNIT_CODE
+            WHERE tmp.VNO = ?
+            ORDER BY tmp.MEDICAL_PROCEDURE_CODE
+        `, [vno]);
+
+        console.log(`Found ${procedures.length} procedures for VNO: ${vno}`);
+
+        // Get lab tests
+        const [labTests] = await db.execute(`
+            SELECT 
+                tl.VNO,
+                tl.LABCODE,
+                COALESCE(l.LABNAME, 'การตรวจไม่ระบุ') as LABNAME,
+                100 as PRICE
+            FROM TREATMENT1_LABORATORY tl
+            LEFT JOIN TABLE_LAB l ON tl.LABCODE = l.LABCODE
+            WHERE tl.VNO = ?
+            ORDER BY l.LABNAME
+        `, [vno]);
+
+        console.log(`Found ${labTests.length} lab tests for VNO: ${vno}`);
+
+        // Get radiological tests
+        const [radioTests] = await db.execute(`
+            SELECT 
+                tr.VNO,
+                tr.RLCODE,
+                COALESCE(r.RLNAME, 'การตรวจไม่ระบุ') as RLNAME,
+                200 as PRICE
+            FROM TREATMENT1_RADIOLOGICAL tr
+            LEFT JOIN TABLE_RADIOLOGICAL r ON tr.RLCODE = r.RLCODE
+            WHERE tr.VNO = ?
+            ORDER BY r.RLNAME
+        `, [vno]);
+
+        console.log(`Found ${radioTests.length} radiological tests for VNO: ${vno}`);
+
+        // Calculate total cost
+        const totalDrugCost = drugs.reduce((sum, drug) => sum + (parseFloat(drug.AMT) || 0), 0);
+        const totalProcedureCost = procedures.reduce((sum, proc) => sum + (parseFloat(proc.AMT) || 0), 0);
+        const totalLabCost = labTests.reduce((sum, lab) => sum + (parseFloat(lab.PRICE) || 0), 0);
+        const totalRadioCost = radioTests.reduce((sum, radio) => sum + (parseFloat(radio.PRICE) || 0), 0);
+        const totalCost = totalDrugCost + totalProcedureCost + totalLabCost + totalRadioCost;
+
+        console.log(`Calculated costs - Drugs: ${totalDrugCost}, Procedures: ${totalProcedureCost}, Total: ${totalCost}`);
+
+        res.json({
+            success: true,
+            data: {
+                treatment: treatment[0],
+                diagnosis: diagnosis[0] || null,
+                drugs: drugs,
+                procedures: procedures,
+                labTests: labTests,
+                radiologicalTests: radioTests,
+                summary: {
+                    totalDrugCost: totalDrugCost,
+                    totalProcedureCost: totalProcedureCost,
+                    totalLabCost: totalLabCost,
+                    totalRadioCost: totalRadioCost,
+                    totalCost: totalCost,
+                    drugCount: drugs.length,
+                    procedureCount: procedures.length,
+                    labTestCount: labTests.length,
+                    radioTestCount: radioTests.length
+                }
             }
-        }
-
-        // ====== UPDATE DRUGS ======
-        if (drugs !== undefined) {
-            await connection.execute('DELETE FROM TREATMENT1_DRUG WHERE VNO = ?', [vno]);
-            for (const drug of drugs) {
-                await connection.execute(`
-                    INSERT INTO TREATMENT1_DRUG 
-                      (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `, [vno, drug.DRUG_CODE, drug.QTY, drug.UNIT_CODE, drug.UNIT_PRICE, drug.AMT, drug.NOTE1, drug.TIME1]);
-            }
-        }
-
-        // ====== UPDATE PROCEDURES ======
-        if (procedures !== undefined) {
-            await connection.execute('DELETE FROM TREATMENT1_PROCEDURE WHERE VNO = ?', [vno]);
-            for (const proc of procedures) {
-                await connection.execute(`
-                    INSERT INTO TREATMENT1_PROCEDURE 
-                      (VNO, PROC_CODE, QTY, UNIT_PRICE, AMT, NOTE1) 
-                    VALUES (?, ?, ?, ?, ?, ?)
-                `, [vno, proc.PROC_CODE, proc.QTY, proc.UNIT_PRICE, proc.AMT, proc.NOTE1]);
-            }
-        }
-
-        // ====== UPDATE LAB TESTS ======
-        if (labTests !== undefined) {
-            await connection.execute('DELETE FROM TREATMENT1_LAB WHERE VNO = ?', [vno]);
-            for (const lab of labTests) {
-                await connection.execute(`
-                    INSERT INTO TREATMENT1_LAB 
-                      (VNO, LAB_CODE, RESULT, NOTE1) 
-                    VALUES (?, ?, ?, ?)
-                `, [vno, lab.LAB_CODE, lab.RESULT, lab.NOTE1]);
-            }
-        }
-
-        // ====== UPDATE RADIO TESTS ======
-        if (radioTests !== undefined) {
-            await connection.execute('DELETE FROM TREATMENT1_RADIO WHERE VNO = ?', [vno]);
-            for (const radio of radioTests) {
-                await connection.execute(`
-                    INSERT INTO TREATMENT1_RADIO 
-                      (VNO, RADIO_CODE, RESULT, NOTE1) 
-                    VALUES (?, ?, ?, ?)
-                `, [vno, radio.RADIO_CODE, radio.RESULT, radio.NOTE1]);
-            }
-        }
-
-        await connection.commit();
-        console.log(`✅ ${version} SUCCESS for VNO=${vno}`);
-
-        res.json({ success: true, message: 'อัปเดตข้อมูลการรักษาสำเร็จ', data: { VNO: vno } });
+        });
 
     } catch (error) {
-        if (connection) { await connection.rollback(); }
-        console.error(`❌ ${version} ERROR for VNO=${req.params.vno}`, error);
-        res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลการรักษา', error: error.message });
-    } finally {
-        if (connection) { connection.release(); }
+        console.error('Error fetching treatment details for VNO:', req.params.vno, error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายละเอียดการรักษา',
+            error: error.message,
+            vno: req.params.vno
+        });
     }
 });
 
