@@ -504,7 +504,7 @@ router.post('/', async (req, res) => {
     }
 });
 
-// PUT update entire treatment
+// PUT update entire treatment - แก้ไขให้รองรับ drugs และ procedures
 router.put('/:vno', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
@@ -520,7 +520,7 @@ router.put('/:vno', async (req, res) => {
             TOTAL_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT, PAYMENT_STATUS,
             PAYMENT_DATE, PAYMENT_TIME, PAYMENT_METHOD, RECEIVED_AMOUNT,
             CHANGE_AMOUNT, CASHIER,
-            // Related data
+            // Related data - เพิ่มการรองรับ arrays
             diagnosis, drugs = [], procedures = [], labTests = [], radioTests = []
         } = req.body;
 
@@ -595,6 +595,7 @@ router.put('/:vno', async (req, res) => {
             updateValues.push(CASHIER);
         }
 
+        // อัปเดตข้อมูลหลัก
         if (updateFields.length > 0) {
             updateValues.push(vno);
 
@@ -608,6 +609,91 @@ router.put('/:vno', async (req, res) => {
                     success: false,
                     message: 'ไม่พบข้อมูลการรักษาที่ต้องการอัปเดต'
                 });
+            }
+        }
+
+        // อัปเดต diagnosis
+        if (diagnosis && Object.keys(diagnosis).length > 0) {
+            // ลบข้อมูลเก่า
+            await connection.execute('DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?', [vno]);
+
+            // เพิ่มข้อมูลใหม่
+            if (diagnosis.CHIEF_COMPLAINT || diagnosis.PRESENT_ILL || diagnosis.PHYSICAL_EXAM || diagnosis.PLAN1) {
+                await connection.execute(`
+                    INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
+                    VALUES (?, ?, ?, ?, ?)
+                `, [vno, diagnosis.CHIEF_COMPLAINT, diagnosis.PRESENT_ILL, diagnosis.PHYSICAL_EXAM, diagnosis.PLAN1]);
+            }
+        }
+
+        // เพิ่มข้อมูลยาใหม่ (ไม่ต้องลบเพราะ VNO ไม่ซ้ำ)
+        if (Array.isArray(drugs) && drugs.length > 0) {
+            for (const drug of drugs) {
+                if (drug.DRUG_CODE) {
+                    console.log('Inserting drug:', drug);
+                    await connection.execute(`
+                        INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        vno,
+                        drug.DRUG_CODE,
+                        drug.QTY || 1,
+                        drug.UNIT_CODE || 'TAB',
+                        drug.UNIT_PRICE || 0,
+                        drug.AMT || 0,
+                        drug.NOTE1 || '',
+                        drug.TIME1 || ''
+                    ]);
+                }
+            }
+        }
+
+        // เพิ่มข้อมูลหัตถการใหม่ (ไม่ต้องลบเพราะ VNO ไม่ซ้ำ)
+        if (Array.isArray(procedures) && procedures.length > 0) {
+            for (const proc of procedures) {
+                if (proc.MEDICAL_PROCEDURE_CODE || proc.PROCEDURE_CODE) {
+                    const procedureCode = proc.MEDICAL_PROCEDURE_CODE || proc.PROCEDURE_CODE;
+
+                    // ตรวจสอบและเพิ่มหัตถการใหม่ถ้าจำเป็น
+                    await ensureProcedureExists(connection, procedureCode, proc.PROCEDURE_NAME);
+
+                    console.log('Inserting procedure:', proc);
+                    await connection.execute(`
+                        INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    `, [
+                        vno,
+                        procedureCode,
+                        proc.QTY || 1,
+                        proc.UNIT_CODE || 'ครั้ง',
+                        proc.UNIT_PRICE || 0,
+                        proc.AMT || 0
+                    ]);
+                }
+            }
+        }
+
+        // อัปเดต lab tests
+        if (Array.isArray(labTests) && labTests.length > 0) {
+            await connection.execute('DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?', [vno]);
+            for (const lab of labTests) {
+                if (lab.LABCODE) {
+                    await connection.execute(`
+                        INSERT INTO TREATMENT1_LABORATORY (VNO, LABCODE) VALUES (?, ?)
+                    `, [vno, lab.LABCODE]);
+                }
+            }
+        }
+
+        // อัปเดต radiological tests
+        if (Array.isArray(radioTests) && radioTests.length > 0) {
+            await connection.execute('DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?', [vno]);
+            for (const radio of radioTests) {
+                if (radio.RLCODE) {
+                    await connection.execute(`
+                        INSERT INTO TREATMENT1_RADIOLOGICAL (VNO, RLCODE) VALUES (?, ?)
+                    `, [vno, radio.RLCODE]);
+                }
             }
         }
 
