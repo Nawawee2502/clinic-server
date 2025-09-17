@@ -505,7 +505,6 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /:vno 
-// แก้ไข PUT /:vno route ใน treatments.js
 router.put('/:vno', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
@@ -517,7 +516,7 @@ router.put('/:vno', async (req, res) => {
         const { vno } = req.params;
 
         console.log(`🔍 TREATMENT UPDATE: VNO ${vno}`);
-        console.log(`📥 Request body:`, req.body);
+        console.log(`📥 Request body keys:`, Object.keys(req.body));
 
         // ดึงข้อมูลเดิมก่อนอัพเดท
         const [existingData] = await connection.execute(`
@@ -533,10 +532,21 @@ router.put('/:vno', async (req, res) => {
         }
 
         const existing = existingData[0];
+        console.log(`📋 Existing vital signs:`, {
+            RDATE: existing.RDATE,
+            WEIGHT1: existing.WEIGHT1,
+            HIGHT1: existing.HIGHT1,
+            BT1: existing.BT1,
+            BP1: existing.BP1,
+            BP2: existing.BP2,
+            RR1: existing.RR1,
+            PR1: existing.PR1,
+            SPO2: existing.SPO2
+        });
 
         const {
             STATUS1, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1, INVESTIGATION_NOTES,
-            // Vital Signs - เพิ่มฟิลด์เหล่านี้
+            // Vital Signs - ถ้าไม่ส่งมาให้ใช้ของเดิม
             WEIGHT1, HIGHT1, BT1, BP1, BP2, RR1, PR1, SPO2, RDATE,
             // Payment fields
             TOTAL_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT, PAYMENT_STATUS,
@@ -546,24 +556,27 @@ router.put('/:vno', async (req, res) => {
             diagnosis, drugs, procedures, labTests, radioTests
         } = req.body;
 
-        // สร้าง dynamic update query - รวมฟิลด์ที่ขาดหายไป
+        // สร้าง dynamic update query - เฉพาะฟิลด์ที่ส่งมา
         const updateFields = [];
         const updateValues = [];
 
-        // ฟิลด์หลักที่ต้องอัพเดท
+        // ฟิลด์หลักที่ต้องอัพเดท - เฉพาะที่ส่งมา
         if (req.body.hasOwnProperty('STATUS1') && STATUS1 !== undefined) {
             updateFields.push('STATUS1 = ?');
             updateValues.push(STATUS1);
+            console.log(`📝 Will update STATUS1: ${existing.STATUS1} -> ${STATUS1}`);
         }
 
         if (req.body.hasOwnProperty('SYMPTOM') && SYMPTOM !== undefined) {
             updateFields.push('SYMPTOM = ?');
             updateValues.push(SYMPTOM);
+            console.log(`📝 Will update SYMPTOM: ${existing.SYMPTOM} -> ${SYMPTOM}`);
         }
 
         if (req.body.hasOwnProperty('DXCODE') && DXCODE !== undefined) {
             updateFields.push('DXCODE = ?');
             updateValues.push(DXCODE);
+            console.log(`📝 Will update DXCODE: ${existing.DXCODE} -> ${DXCODE}`);
         }
 
         if (req.body.hasOwnProperty('ICD10CODE') && ICD10CODE !== undefined) {
@@ -574,6 +587,7 @@ router.put('/:vno', async (req, res) => {
         if (req.body.hasOwnProperty('TREATMENT1') && TREATMENT1 !== undefined) {
             updateFields.push('TREATMENT1 = ?');
             updateValues.push(TREATMENT1);
+            console.log(`📝 Will update TREATMENT1: ${existing.TREATMENT1?.substring(0, 50)}... -> ${TREATMENT1?.substring(0, 50)}...`);
         }
 
         if (req.body.hasOwnProperty('INVESTIGATION_NOTES') && INVESTIGATION_NOTES !== undefined) {
@@ -581,50 +595,59 @@ router.put('/:vno', async (req, res) => {
             updateValues.push(INVESTIGATION_NOTES);
         }
 
-        // ✅ เพิ่ม Vital Signs fields ที่หายไป
+        // ✅ Vital Signs - อัพเดทเฉพาะเมื่อมีการส่งมา ไม่งั้นใช้ค่าเดิม
         if (req.body.hasOwnProperty('WEIGHT1') && WEIGHT1 !== undefined) {
             updateFields.push('WEIGHT1 = ?');
             updateValues.push(parseFloat(WEIGHT1) || null);
+            console.log(`📝 Will update WEIGHT1: ${existing.WEIGHT1} -> ${WEIGHT1}`);
         }
 
         if (req.body.hasOwnProperty('HIGHT1') && HIGHT1 !== undefined) {
             updateFields.push('HIGHT1 = ?');
             updateValues.push(parseFloat(HIGHT1) || null);
+            console.log(`📝 Will update HIGHT1: ${existing.HIGHT1} -> ${HIGHT1}`);
         }
 
         if (req.body.hasOwnProperty('BT1') && BT1 !== undefined) {
             updateFields.push('BT1 = ?');
             updateValues.push(parseFloat(BT1) || null);
+            console.log(`📝 Will update BT1: ${existing.BT1} -> ${BT1}`);
         }
 
         if (req.body.hasOwnProperty('BP1') && BP1 !== undefined) {
             updateFields.push('BP1 = ?');
             updateValues.push(parseInt(BP1) || null);
+            console.log(`📝 Will update BP1: ${existing.BP1} -> ${BP1}`);
         }
 
         if (req.body.hasOwnProperty('BP2') && BP2 !== undefined) {
             updateFields.push('BP2 = ?');
             updateValues.push(parseInt(BP2) || null);
+            console.log(`📝 Will update BP2: ${existing.BP2} -> ${BP2}`);
         }
 
         if (req.body.hasOwnProperty('RR1') && RR1 !== undefined) {
             updateFields.push('RR1 = ?');
             updateValues.push(parseInt(RR1) || null);
+            console.log(`📝 Will update RR1: ${existing.RR1} -> ${RR1}`);
         }
 
         if (req.body.hasOwnProperty('PR1') && PR1 !== undefined) {
             updateFields.push('PR1 = ?');
             updateValues.push(parseInt(PR1) || null);
+            console.log(`📝 Will update PR1: ${existing.PR1} -> ${PR1}`);
         }
 
         if (req.body.hasOwnProperty('SPO2') && SPO2 !== undefined) {
             updateFields.push('SPO2 = ?');
             updateValues.push(parseInt(SPO2) || null);
+            console.log(`📝 Will update SPO2: ${existing.SPO2} -> ${SPO2}`);
         }
 
         if (req.body.hasOwnProperty('RDATE') && RDATE !== undefined) {
             updateFields.push('RDATE = ?');
             updateValues.push(RDATE);
+            console.log(`📝 Will update RDATE: ${existing.RDATE} -> ${RDATE}`);
         }
 
         // Payment fields
@@ -699,14 +722,16 @@ router.put('/:vno', async (req, res) => {
                     console.log(`Updated diagnosis for VNO: ${vno}`);
                 }
             } else if (diagnosis === null || (diagnosis && Object.keys(diagnosis).length === 0)) {
-                // ถ้าส่งมาเป็น null หรือ {} แปลว่าต้องการลบ
                 await connection.execute('DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?', [vno]);
                 console.log(`Deleted diagnosis for VNO: ${vno}`);
             }
         }
 
-        // เพิ่มข้อมูลยาใหม่ - เฉพาะเมื่อมีการส่งมาใน request body
+        // ✅ เพิ่มข้อมูลยาใหม่ - ลบของเก่าก่อนเพื่อไม่ให้ซ้ำ
         if (req.body.hasOwnProperty('drugs')) {
+            // ลบข้อมูลยาเก่าทั้งหมดก่อน
+            await connection.execute('DELETE FROM TREATMENT1_DRUG WHERE VNO = ?', [vno]);
+
             if (Array.isArray(drugs) && drugs.length > 0) {
                 for (const drug of drugs) {
                     if (drug.DRUG_CODE) {
@@ -730,8 +755,11 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // เพิ่มข้อมูลหัตถการใหม่ - เฉพาะเมื่อมีการส่งมาใน request body
+        // ✅ เพิ่มข้อมูลหัตถการใหม่ - ลบของเก่าก่อนเพื่อไม่ให้ซ้ำ
         if (req.body.hasOwnProperty('procedures')) {
+            // ลบข้อมูลหัตถการเก่าทั้งหมดก่อน
+            await connection.execute('DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?', [vno]);
+
             if (Array.isArray(procedures) && procedures.length > 0) {
                 for (const proc of procedures) {
                     if (proc.MEDICAL_PROCEDURE_CODE || proc.PROCEDURE_CODE) {
@@ -800,6 +828,26 @@ router.put('/:vno', async (req, res) => {
                     console.log(`Cleared radiological tests for VNO: ${vno}`);
                 }
             }
+        }
+
+        // ตรวจสอบข้อมูลหลังอัพเดท
+        const [afterUpdate] = await connection.execute(`
+            SELECT RDATE, WEIGHT1, HIGHT1, BT1, BP1, BP2, RR1, PR1, SPO2, SYMPTOM, DXCODE, TREATMENT1 
+            FROM TREATMENT1 WHERE VNO = ?
+        `, [vno]);
+
+        if (afterUpdate.length > 0) {
+            console.log(`📋 After update vital signs:`, {
+                RDATE: afterUpdate[0].RDATE,
+                WEIGHT1: afterUpdate[0].WEIGHT1,
+                HIGHT1: afterUpdate[0].HIGHT1,
+                BT1: afterUpdate[0].BT1,
+                BP1: afterUpdate[0].BP1,
+                BP2: afterUpdate[0].BP2,
+                RR1: afterUpdate[0].RR1,
+                PR1: afterUpdate[0].PR1,
+                SPO2: afterUpdate[0].SPO2
+            });
         }
 
         await connection.commit();
