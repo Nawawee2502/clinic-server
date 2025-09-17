@@ -676,6 +676,7 @@ router.post('/', async (req, res) => {
 // PUT update entire treatment (TREATMENT1 + diagnosis + drugs + procedures + labTests + radioTests)
 
 // PUT update entire treatment
+// PUT update entire treatment (TREATMENT1 + payment data)
 router.put('/:vno', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
@@ -696,27 +697,25 @@ router.put('/:vno', async (req, res) => {
             VNO, HNNO, DXCODE, ICD10CODE, TREATMENT1, STATUS1,
             SYMPTOM, diagnosis, drugs = [], procedures = [],
             labTests = [], radioTests = [], INVESTIGATION_NOTES,
-            WEIGHT1, HIGHT1, BT1, PR1, RR1, BP1, BP2, SPO2
+            WEIGHT1, HIGHT1, BT1, PR1, RR1, BP1, BP2, SPO2,
+
+            // เพิ่มฟิลด์การชำระเงิน
+            TOTAL_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT,
+            PAYMENT_STATUS, PAYMENT_DATE, PAYMENT_TIME,
+            PAYMENT_METHOD, RECEIVED_AMOUNT, CHANGE_AMOUNT, CASHIER
         } = req.body;
 
-        console.log(`Updating treatment ${vno}:`, {
+        console.log(`Updating treatment ${vno} with payment data:`, {
             VNO: toNull(VNO),
             HNNO: toNull(HNNO),
             SYMPTOM: toNull(SYMPTOM),
             STATUS1: toNull(STATUS1),
-            DXCODE: toNull(DXCODE),
-            ICD10CODE: toNull(ICD10CODE),
-            TREATMENT1: toNull(TREATMENT1),
-            INVESTIGATION_NOTES: toNull(INVESTIGATION_NOTES),
-            diagnosis: toNull(diagnosis),
-            drugsCount: drugs.length,
-            proceduresCount: procedures.length,
-            labTestsCount: labTests.length,
-            radioTestsCount: radioTests.length
+            PAYMENT_STATUS: toNull(PAYMENT_STATUS),
+            TOTAL_AMOUNT: toNull(TOTAL_AMOUNT),
+            NET_AMOUNT: toNull(NET_AMOUNT)
         });
 
-        // Update main treatment
-        // Update main treatment พร้อม vitalsign
+        // Update main treatment พร้อม vitalsign และข้อมูลการชำระเงิน
         const [updateResult] = await connection.execute(`
             UPDATE TREATMENT1 SET 
                 SYMPTOM = COALESCE(?, SYMPTOM), 
@@ -731,8 +730,20 @@ router.put('/:vno', async (req, res) => {
                 PR1 = COALESCE(?, PR1),
                 RR1 = COALESCE(?, RR1),
                 BP1 = COALESCE(?, BP1),
-                BP2 = COALESCE(?, BP2),   -- 👈 เพิ่ม
-                SPO2 = COALESCE(?, SPO2)  -- 👈 เพิ่ม
+                BP2 = COALESCE(?, BP2),
+                SPO2 = COALESCE(?, SPO2),
+                
+                -- ฟิลด์การชำระเงิน
+                TOTAL_AMOUNT = COALESCE(?, TOTAL_AMOUNT),
+                DISCOUNT_AMOUNT = COALESCE(?, DISCOUNT_AMOUNT),
+                NET_AMOUNT = COALESCE(?, NET_AMOUNT),
+                PAYMENT_STATUS = COALESCE(?, PAYMENT_STATUS),
+                PAYMENT_DATE = COALESCE(?, PAYMENT_DATE),
+                PAYMENT_TIME = COALESCE(?, PAYMENT_TIME),
+                PAYMENT_METHOD = COALESCE(?, PAYMENT_METHOD),
+                RECEIVED_AMOUNT = COALESCE(?, RECEIVED_AMOUNT),
+                CHANGE_AMOUNT = COALESCE(?, CHANGE_AMOUNT),
+                CASHIER = COALESCE(?, CASHIER)
             WHERE VNO = ?
         `, [
             toNull(SYMPTOM),
@@ -747,12 +758,23 @@ router.put('/:vno', async (req, res) => {
             toNull(PR1),
             toNull(RR1),
             toNull(BP1),
-            toNull(BP2),   // 👈 เพิ่ม
-            toNull(SPO2),  // 👈 เพิ่ม
+            toNull(BP2),
+            toNull(SPO2),
+
+            // ฟิลด์การชำระเงิน
+            toNull(TOTAL_AMOUNT) ? parseFloat(toNull(TOTAL_AMOUNT)) : null,
+            toNull(DISCOUNT_AMOUNT) ? parseFloat(toNull(DISCOUNT_AMOUNT)) : null,
+            toNull(NET_AMOUNT) ? parseFloat(toNull(NET_AMOUNT)) : null,
+            toNull(PAYMENT_STATUS),
+            toNull(PAYMENT_DATE),
+            toNull(PAYMENT_TIME),
+            toNull(PAYMENT_METHOD),
+            toNull(RECEIVED_AMOUNT) ? parseFloat(toNull(RECEIVED_AMOUNT)) : null,
+            toNull(CHANGE_AMOUNT) ? parseFloat(toNull(CHANGE_AMOUNT)) : null,
+            toNull(CASHIER),
+
             vno
         ]);
-
-
 
         if (updateResult.affectedRows === 0) {
             await connection.rollback();
@@ -802,13 +824,13 @@ router.put('/:vno', async (req, res) => {
                     }
 
                     await connection.execute(`
-                INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
+                        INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
                         vno,
                         toNull(drug.DRUG_CODE),
                         toNull(drug.QTY) || 1,
-                        unitCode, // ← ใช้ unit code ที่ตรวจสอบแล้ว
+                        unitCode,
                         toNull(drug.UNIT_PRICE) || 0,
                         toNull(drug.AMT) || 0,
                         toNull(drug.NOTE1) || '',
@@ -936,7 +958,7 @@ router.put('/:vno', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'อัปเดตข้อมูลการรักษาสำเร็จ',
+            message: 'อัปเดตข้อมูลการรักษาและการชำระเงินสำเร็จ',
             data: {
                 VNO: vno,
                 updatedItems: {
@@ -944,7 +966,9 @@ router.put('/:vno', async (req, res) => {
                     procedures: procedures.length,
                     labTests: labTests.length,
                     radioTests: radioTests.length,
-                    investigationNotes: INVESTIGATION_NOTES ? 'updated' : 'no change'
+                    investigationNotes: INVESTIGATION_NOTES ? 'updated' : 'no change',
+                    paymentStatus: PAYMENT_STATUS ? 'updated' : 'no change',
+                    totalAmount: TOTAL_AMOUNT ? parseFloat(TOTAL_AMOUNT) : null
                 }
             }
         });
@@ -958,10 +982,10 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        console.error('Error updating treatment:', error);
+        console.error('Error updating treatment with payment data:', error);
         res.status(500).json({
             success: false,
-            message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลการรักษา',
+            message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลการรักษาและการชำระเงิน',
             error: error.message
         });
     } finally {
