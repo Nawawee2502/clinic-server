@@ -34,6 +34,74 @@ router.get('/', async (req, res) => {
     }
 });
 
+// เพิ่มใน patients.js router
+
+// GET check ID card duplicate
+router.get('/check-idcard/:idno', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { idno } = req.params;
+
+        const [rows] = await db.execute(
+            'SELECT HNCODE, NAME1, SURNAME, IDNO FROM patient1 WHERE IDNO = ?',
+            [idno]
+        );
+
+        if (rows.length > 0) {
+            res.json({
+                success: true,
+                exists: true,
+                patient: rows[0]
+            });
+        } else {
+            res.json({
+                success: true,
+                exists: false
+            });
+        }
+    } catch (error) {
+        console.error('Error checking ID card:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการตรวจสอบบัตรประชาชน',
+            error: error.message
+        });
+    }
+});
+
+// GET check HN duplicate
+router.get('/check-hn/:hn', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { hn } = req.params;
+
+        const [rows] = await db.execute(
+            'SELECT HNCODE, PRENAME, NAME1, SURNAME, IDNO FROM patient1 WHERE HNCODE = ?',
+            [hn]
+        );
+
+        if (rows.length > 0) {
+            res.json({
+                success: true,
+                exists: true,
+                patient: rows[0]
+            });
+        } else {
+            res.json({
+                success: true,
+                exists: false
+            });
+        }
+    } catch (error) {
+        console.error('Error checking HN:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการตรวจสอบ HN',
+            error: error.message
+        });
+    }
+});
+
 // GET patient by HN
 router.get('/:hn', async (req, res) => {
     try {
