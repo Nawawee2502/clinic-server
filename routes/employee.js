@@ -7,7 +7,7 @@ router.get('/', async (req, res) => {
         const db = await require('../config/db');
         const { type } = req.query;
 
-        let query = 'SELECT * FROM employee1';
+        let query = 'SELECT * FROM EMPLOYEE1';
         let params = [];
 
         if (type) {
@@ -39,7 +39,7 @@ router.get('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
-        const [rows] = await db.execute('SELECT * FROM employee1 WHERE EMP_CODE = ?', [code]);
+        const [rows] = await db.execute('SELECT * FROM EMPLOYEE1 WHERE EMP_CODE = ?', [code]);
 
         if (rows.length === 0) {
             return res.status(404).json({
@@ -68,7 +68,7 @@ router.get('/type/:empType', async (req, res) => {
         const db = await require('../config/db');
         const { empType } = req.params;
         const [rows] = await db.execute(`
-            SELECT * FROM employee1 
+            SELECT * FROM EMPLOYEE1 
             WHERE EMP_TYPE = ? 
             ORDER BY EMP_NAME
         `, [empType]);
@@ -97,7 +97,7 @@ router.get('/search/:term', async (req, res) => {
         const searchTerm = `%${term}%`;
 
         const [rows] = await db.execute(`
-            SELECT * FROM employee1 
+            SELECT * FROM EMPLOYEE1 
             WHERE EMP_NAME LIKE ? OR EMP_CODE LIKE ?
             ORDER BY EMP_NAME
             LIMIT 50
@@ -133,7 +133,7 @@ router.post('/', async (req, res) => {
         }
 
         const [result] = await db.execute(
-            'INSERT INTO employee1 (EMP_CODE, EMP_NAME, EMP_TYPE) VALUES (?, ?, ?)',
+            'INSERT INTO EMPLOYEE1 (EMP_CODE, EMP_NAME, EMP_TYPE) VALUES (?, ?, ?)',
             [EMP_CODE, EMP_NAME, EMP_TYPE]
         );
 
@@ -167,7 +167,7 @@ router.put('/:code', async (req, res) => {
         const { EMP_NAME, EMP_TYPE } = req.body;
 
         const [result] = await db.execute(
-            'UPDATE employee1 SET EMP_NAME = ?, EMP_TYPE = ? WHERE EMP_CODE = ?',
+            'UPDATE EMPLOYEE1 SET EMP_NAME = ?, EMP_TYPE = ? WHERE EMP_CODE = ?',
             [EMP_NAME, EMP_TYPE, code]
         );
 
@@ -199,7 +199,7 @@ router.delete('/:code', async (req, res) => {
         const db = await require('../config/db');
         const { code } = req.params;
 
-        const [result] = await db.execute('DELETE FROM employee1 WHERE EMP_CODE = ?', [code]);
+        const [result] = await db.execute('DELETE FROM EMPLOYEE1 WHERE EMP_CODE = ?', [code]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -235,12 +235,12 @@ router.get('/stats/summary', async (req, res) => {
         const db = await require('../config/db');
 
         // Total employees
-        const [totalCount] = await db.execute('SELECT COUNT(*) as total FROM employee1');
+        const [totalCount] = await db.execute('SELECT COUNT(*) as total FROM EMPLOYEE1');
 
         // Employee by type
         const [typeStats] = await db.execute(`
             SELECT EMP_TYPE, COUNT(*) as count 
-            FROM employee1 
+            FROM EMPLOYEE1 
             WHERE EMP_TYPE IS NOT NULL AND EMP_TYPE != ''
             GROUP BY EMP_TYPE
             ORDER BY count DESC
