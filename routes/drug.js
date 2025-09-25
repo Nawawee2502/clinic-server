@@ -188,11 +188,10 @@ router.get('/indication/:indication', async (req, res) => {
 router.post('/', async (req, res) => {
     try {
         const db = await require('../config/db');
+        console.log('📝 Received data:', req.body); // Debug log
+
         const {
-            DRUG_CODE, GENERIC_NAME, TRADE_NAME, DOSAGE_FORM, STRENGTH1,
-            PACKAGE_CODE, ROUTE_ADMIN, DOSE1, INDICATION1, CONTRAINDICATION1,
-            SIDE_EFFECTS, PRECAUTIONS1, NATION_LIST_CODE, NARCOTICS1,
-            UNIT_CODE, UNIT_PRICE
+            DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE
         } = req.body;
 
         if (!DRUG_CODE || !GENERIC_NAME) {
@@ -202,19 +201,11 @@ router.post('/', async (req, res) => {
             });
         }
 
+        // ✅ ใช้เฉพาะ fields ที่จำเป็น
         const [result] = await db.execute(`
-            INSERT INTO TABLE_DRUG (
-                DRUG_CODE, GENERIC_NAME, TRADE_NAME, DOSAGE_FORM, STRENGTH1,
-                PACKAGE_CODE, ROUTE_ADMIN, DOSE1, INDICATION1, CONTRAINDICATION1,
-                SIDE_EFFECTS, PRECAUTIONS1, NATION_LIST_CODE, NARCOTICS1,
-                UNIT_CODE, UNIT_PRICE
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-            DRUG_CODE, GENERIC_NAME, TRADE_NAME, DOSAGE_FORM, STRENGTH1,
-            PACKAGE_CODE, ROUTE_ADMIN, DOSE1, INDICATION1, CONTRAINDICATION1,
-            SIDE_EFFECTS, PRECAUTIONS1, NATION_LIST_CODE, NARCOTICS1,
-            UNIT_CODE, UNIT_PRICE
-        ]);
+            INSERT INTO TABLE_DRUG (DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE) 
+            VALUES (?, ?, ?, ?, ?)
+        `, [DRUG_CODE, GENERIC_NAME, TRADE_NAME || null, UNIT_CODE || null, UNIT_PRICE || null]);
 
         res.status(201).json({
             success: true,
@@ -226,47 +217,56 @@ router.post('/', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error creating drug:', error);
+        console.error('❌ Error creating drug:', error);
+        console.error('❌ Error code:', error.code);
+        console.error('❌ SQL State:', error.sqlState);
+
         if (error.code === 'ER_DUP_ENTRY') {
             res.status(409).json({
                 success: false,
                 message: 'รหัสยานี้มีอยู่แล้ว'
             });
+        } else if (error.code === 'ER_NO_SUCH_TABLE') {
+            res.status(500).json({
+                success: false,
+                message: 'ไม่พบตาราง TABLE_DRUG ในฐานข้อมูล',
+                error: error.message
+            });
         } else {
             res.status(500).json({
                 success: false,
                 message: 'เกิดข้อผิดพลาดในการเพิ่มข้อมูลยา',
-                error: error.message
+                error: error.message,
+                code: error.code
             });
         }
     }
 });
 
-// ✅ PUT update drug
+// ✅ PUT update drug - แก้ไขให้รับข้อมูลแค่ที่จำเป็น
 router.put('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
+        console.log('📝 Updating drug:', code, 'with data:', req.body);
+
         const {
-            GENERIC_NAME, TRADE_NAME, DOSAGE_FORM, STRENGTH1,
-            PACKAGE_CODE, ROUTE_ADMIN, DOSE1, INDICATION1, CONTRAINDICATION1,
-            SIDE_EFFECTS, PRECAUTIONS1, NATION_LIST_CODE, NARCOTICS1,
-            UNIT_CODE, UNIT_PRICE
+            GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE
         } = req.body;
 
+        if (!GENERIC_NAME) {
+            return res.status(400).json({
+                success: false,
+                message: 'กรุณาระบุชื่อสามัญยา'
+            });
+        }
+
+        // ✅ อัพเดทเฉพาะ fields ที่จำเป็น (ไม่รวม DRUG_CODE เพราะเป็น PK)
         const [result] = await db.execute(`
             UPDATE TABLE_DRUG SET 
-                GENERIC_NAME = ?, TRADE_NAME = ?, DOSAGE_FORM = ?, STRENGTH1 = ?,
-                PACKAGE_CODE = ?, ROUTE_ADMIN = ?, DOSE1 = ?, INDICATION1 = ?, 
-                CONTRAINDICATION1 = ?, SIDE_EFFECTS = ?, PRECAUTIONS1 = ?, 
-                NATION_LIST_CODE = ?, NARCOTICS1 = ?, UNIT_CODE = ?, UNIT_PRICE = ?
+                GENERIC_NAME = ?, TRADE_NAME = ?, UNIT_CODE = ?, UNIT_PRICE = ?
             WHERE DRUG_CODE = ?
-        `, [
-            GENERIC_NAME, TRADE_NAME, DOSAGE_FORM, STRENGTH1,
-            PACKAGE_CODE, ROUTE_ADMIN, DOSE1, INDICATION1, CONTRAINDICATION1,
-            SIDE_EFFECTS, PRECAUTIONS1, NATION_LIST_CODE, NARCOTICS1,
-            UNIT_CODE, UNIT_PRICE, code
-        ]);
+        `, [GENERIC_NAME, TRADE_NAME || null, UNIT_CODE || null, UNIT_PRICE || null, code]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -285,20 +285,32 @@ router.put('/:code', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error updating drug:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลยา',
-            error: error.message
-        });
+        console.error('❌ Error updating drug:', error);
+        console.error('❌ Error code:', error.code);
+
+        if (error.code === 'ER_NO_SUCH_TABLE') {
+            res.status(500).json({
+                success: false,
+                message: 'ไม่พบตาราง TABLE_DRUG ในฐานข้อมูล',
+                error: error.message
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลยา',
+                error: error.message,
+                code: error.code
+            });
+        }
     }
 });
 
-// ✅ DELETE drug
+// ✅ DELETE drug - เพิ่ม error handling
 router.delete('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
+        console.log('🗑️ Deleting drug:', code);
 
         const [result] = await db.execute('DELETE FROM TABLE_DRUG WHERE DRUG_CODE = ?', [code]);
 
@@ -311,15 +323,27 @@ router.delete('/:code', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'ลบข้อมูลยาสำเร็จ'
+            message: 'ลบข้อมูลยาสำเร็จ',
+            deletedCode: code
         });
     } catch (error) {
-        console.error('Error deleting drug:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการลบข้อมูลยา',
-            error: error.message
-        });
+        console.error('❌ Error deleting drug:', error);
+        console.error('❌ Error code:', error.code);
+
+        if (error.code === 'ER_NO_SUCH_TABLE') {
+            res.status(500).json({
+                success: false,
+                message: 'ไม่พบตาราง TABLE_DRUG ในฐานข้อมูล',
+                error: error.message
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: 'เกิดข้อผิดพลาดในการลบข้อมูลยา',
+                error: error.message,
+                code: error.code
+            });
+        }
     }
 });
 
