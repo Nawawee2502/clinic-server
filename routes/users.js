@@ -40,6 +40,91 @@ const requireAdmin = (req, res, next) => {
 };
 
 // ============================================
+// POST /api/users/register - ลงทะเบียน (Public)
+// ============================================
+router.post('/register', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { username, password, fullName, empCode, email, tel } = req.body;
+
+        // Validation
+        if (!username || !password || !fullName) {
+            return res.status(400).json({
+                success: false,
+                message: 'กรุณากรอกข้อมูลให้ครบถ้วน (Username, Password, Full Name)'
+            });
+        }
+
+        // ตรวจสอบความยาว Password
+        if (password.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password ต้องมีความยาวอย่างน้อย 6 ตัวอักษร'
+            });
+        }
+
+        // ตรวจสอบ Username ซ้ำ
+        const [existing] = await db.execute(
+            'SELECT USER_ID FROM USERS WHERE USERNAME = ?',
+            [username]
+        );
+
+        if (existing.length > 0) {
+            return res.status(409).json({
+                success: false,
+                message: 'Username นี้มีอยู่ในระบบแล้ว'
+            });
+        }
+
+        // Hash Password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Insert User (Role เป็น 'user' ตามค่าเริ่มต้น)
+        const [result] = await db.execute(`
+            INSERT INTO USERS 
+            (USERNAME, PASSWORD, FULL_NAME, ROLE, EMP_CODE, EMAIL, TEL, STATUS, CREATED_DATE)
+            VALUES (?, ?, ?, 'user', ?, ?, ?, 'active', NOW())
+        `, [username, hashedPassword, fullName, empCode, email, tel]);
+
+        // สร้าง JWT Token ทันที
+        const token = jwt.sign(
+            {
+                userId: result.insertId,
+                username: username,
+                role: 'user',
+                empCode: empCode
+            },
+            process.env.JWT_SECRET || 'your-secret-key-change-this',
+            { expiresIn: '24h' }
+        );
+
+        res.status(201).json({
+            success: true,
+            message: 'ลงทะเบียนสำเร็จ',
+            data: {
+                token,
+                user: {
+                    userId: result.insertId,
+                    username,
+                    fullName,
+                    role: 'user',
+                    empCode,
+                    email
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Error during registration:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการลงทะเบียน',
+            error: error.message
+        });
+    }
+});
+
+// ============================================
 // POST /api/users/login - เข้าสู่ระบบ
 // ============================================
 router.post('/login', async (req, res) => {
