@@ -18,6 +18,7 @@ const treatmentRoutes = require('./treatment');
 const unitPackageRoutes = require('./unit-package');
 const appointmentRoutes = require('./appointment');
 const queueRoutes = require('./queue');
+const userRoutes = require('./users');
 
 // Health check endpoint
 router.get('/health', (req, res) => {
@@ -251,6 +252,8 @@ router.use('/treatments', treatmentRoutes);
 // Appointment & Queue APIs
 router.use('/appointments', appointmentRoutes);
 router.use('/queue', queueRoutes);
+
+router.use('/users', userRoutes);
 
 // Utility APIs (handled by unit-package.js)
 router.use('/', unitPackageRoutes); // This handles /units and /packages

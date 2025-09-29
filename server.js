@@ -140,6 +140,9 @@ async function startServer() {
         // Import API router
         const apiRouter = require('./routes/router');
 
+        const userRoutes = require('./routes/users');
+        app.use('/api/users', userRoutes);
+
         // Mount API routes
         app.use('/api', apiRouter);
 
