@@ -5,9 +5,10 @@ const router = express.Router();
 router.get('/', async (req, res) => {
     try {
         const db = await require('../config/db');
-        const { search, page = 1, limit = 50, type, unit_code, drug_formulations } = req.query;
+        const { search, page = 1, limit = 10000, type, unit_code, drug_formulations } = req.query;
 
-        const limitInt = Math.max(1, Math.min(100, parseInt(limit) || 50));
+        // เพิ่ม limit สูงสุดเป็น 10000 เพื่อรองรับข้อมูลยาจำนวนมาก
+        const limitInt = Math.max(1, Math.min(10000, parseInt(limit) || 10000));
         const pageInt = Math.max(1, parseInt(page) || 1);
         const offset = (pageInt - 1) * limitInt;
 
@@ -140,10 +141,10 @@ router.post('/', async (req, res) => {
             ) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-            DRUG_CODE, 
-            GENERIC_NAME, 
-            TRADE_NAME || null, 
-            UNIT_CODE || null, 
+            DRUG_CODE,
+            GENERIC_NAME,
+            TRADE_NAME || null,
+            UNIT_CODE || null,
             UNIT_PRICE || null,
             Type1 || null,
             Dose1 || null,
@@ -211,9 +212,9 @@ router.put('/:code', async (req, res) => {
                 SOCIAL_CARD = ?, UCS_CARD = ?
             WHERE DRUG_CODE = ?
         `, [
-            GENERIC_NAME, 
-            TRADE_NAME || null, 
-            UNIT_CODE || null, 
+            GENERIC_NAME,
+            TRADE_NAME || null,
+            UNIT_CODE || null,
             UNIT_PRICE || null,
             Type1 || null,
             Dose1 || null,
