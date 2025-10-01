@@ -1,13 +1,12 @@
 const express = require('express');
 const router = express.Router();
 
-// ✅ Working GET all drugs - แก้ไข MySQL parameter issue
+// ✅ GET all drugs with enhanced filtering
 router.get('/', async (req, res) => {
     try {
         const db = await require('../config/db');
-        const { search, page = 1, limit = 50 } = req.query;
+        const { search, page = 1, limit = 50, type, unit_code, drug_formulations } = req.query;
 
-        // ✅ แปลงเป็น integer และ validate
         const limitInt = Math.max(1, Math.min(100, parseInt(limit) || 50));
         const pageInt = Math.max(1, parseInt(page) || 1);
         const offset = (pageInt - 1) * limitInt;
@@ -21,12 +20,24 @@ router.get('/', async (req, res) => {
             params.push(searchTerm, searchTerm, searchTerm);
         }
 
-        // ✅ แก้ไข: ใช้ string interpolation แทน parameter binding สำหรับ LIMIT/OFFSET
+        if (type) {
+            query += ` AND Type1 LIKE ?`;
+            params.push(`%${type}%`);
+        }
+
+        if (unit_code) {
+            query += ` AND UNIT_CODE = ?`;
+            params.push(unit_code);
+        }
+
+        if (drug_formulations) {
+            query += ` AND Drug_formulations = ?`;
+            params.push(drug_formulations);
+        }
+
         query += ` ORDER BY GENERIC_NAME LIMIT ${limitInt} OFFSET ${offset}`;
 
         console.log('🔍 Executing query:', query);
-        console.log('📝 Parameters:', params);
-
         const [rows] = await db.execute(query, params);
 
         // Get total count
@@ -38,10 +49,20 @@ router.get('/', async (req, res) => {
             const searchTerm = `%${search}%`;
             countParams.push(searchTerm, searchTerm, searchTerm);
         }
+        if (type) {
+            countQuery += ` AND Type1 LIKE ?`;
+            countParams.push(`%${type}%`);
+        }
+        if (unit_code) {
+            countQuery += ` AND UNIT_CODE = ?`;
+            countParams.push(unit_code);
+        }
+        if (drug_formulations) {
+            countQuery += ` AND Drug_formulations = ?`;
+            countParams.push(drug_formulations);
+        }
 
         const [countResult] = await db.execute(countQuery, countParams);
-
-        console.log(`✅ Found ${rows.length} drugs, total: ${countResult[0].total}`);
 
         res.json({
             success: true,
@@ -55,42 +76,10 @@ router.get('/', async (req, res) => {
         });
     } catch (error) {
         console.error('❌ Error fetching drugs:', error);
-
-        // ✅ ถ้า TABLE_DRUG ไม่มี ให้ส่งข้อมูลจำลอง
-        if (error.code === 'ER_NO_SUCH_TABLE' || error.message.includes('TABLE_DRUG')) {
-            console.log('📦 TABLE_DRUG not found, returning mock data');
-
-            const mockDrugs = [
-                { DRUG_CODE: 'MED001', GENERIC_NAME: 'Paracetamol 500mg', TRADE_NAME: 'Tylenol', UNIT_CODE: 'TAB' },
-                { DRUG_CODE: 'MED002', GENERIC_NAME: 'Amoxicillin 250mg', TRADE_NAME: 'Amoxil', UNIT_CODE: 'CAP' },
-                { DRUG_CODE: 'MED003', GENERIC_NAME: 'Omeprazole 20mg', TRADE_NAME: 'Losec', UNIT_CODE: 'CAP' },
-                { DRUG_CODE: 'MED004', GENERIC_NAME: 'Salbutamol 100mcg', TRADE_NAME: 'Ventolin', UNIT_CODE: 'SPRAY' },
-                { DRUG_CODE: 'MED005', GENERIC_NAME: 'Metformin 500mg', TRADE_NAME: 'Glucophage', UNIT_CODE: 'TAB' },
-                { DRUG_CODE: 'MED006', GENERIC_NAME: 'Ibuprofen 400mg', TRADE_NAME: 'Brufen', UNIT_CODE: 'TAB' },
-                { DRUG_CODE: 'MED007', GENERIC_NAME: 'Cetirizine 10mg', TRADE_NAME: 'Zyrtec', UNIT_CODE: 'TAB' },
-                { DRUG_CODE: 'MED008', GENERIC_NAME: 'Loratadine 10mg', TRADE_NAME: 'Claritin', UNIT_CODE: 'TAB' },
-                { DRUG_CODE: 'MED009', GENERIC_NAME: 'Aspirin 100mg', TRADE_NAME: 'Cardiprin', UNIT_CODE: 'TAB' },
-                { DRUG_CODE: 'MED010', GENERIC_NAME: 'Simvastatin 20mg', TRADE_NAME: 'Zocor', UNIT_CODE: 'TAB' }
-            ];
-
-            return res.json({
-                success: true,
-                data: mockDrugs,
-                pagination: {
-                    page: 1,
-                    limit: 50,
-                    total: mockDrugs.length,
-                    totalPages: 1
-                },
-                note: 'Using mock data - TABLE_DRUG not found'
-            });
-        }
-
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูลยา',
-            error: error.message,
-            code: error.code
+            error: error.message
         });
     }
 });
@@ -124,74 +113,16 @@ router.get('/:code', async (req, res) => {
     }
 });
 
-// ✅ Search drugs by name
-router.get('/search/:term', async (req, res) => {
-    try {
-        const db = await require('../config/db');
-        const { term } = req.params;
-        const searchTerm = `%${term}%`;
-
-        const [rows] = await db.execute(`
-            SELECT DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE
-            FROM TABLE_DRUG 
-            WHERE GENERIC_NAME LIKE ? OR TRADE_NAME LIKE ? OR DRUG_CODE LIKE ?
-            ORDER BY GENERIC_NAME
-            LIMIT 100
-        `, [searchTerm, searchTerm, searchTerm]);
-
-        res.json({
-            success: true,
-            data: rows,
-            count: rows.length,
-            searchTerm: term
-        });
-    } catch (error) {
-        console.error('Error searching drugs:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการค้นหาข้อมูลยา',
-            error: error.message
-        });
-    }
-});
-
-// ✅ GET drugs by indication
-router.get('/indication/:indication', async (req, res) => {
-    try {
-        const db = await require('../config/db');
-        const { indication } = req.params;
-        const searchTerm = `%${indication}%`;
-
-        const [rows] = await db.execute(`
-            SELECT * FROM TABLE_DRUG 
-            WHERE INDICATION1 LIKE ?
-            ORDER BY GENERIC_NAME
-        `, [searchTerm]);
-
-        res.json({
-            success: true,
-            data: rows,
-            count: rows.length,
-            indication: indication
-        });
-    } catch (error) {
-        console.error('Error fetching drugs by indication:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลยาตามข้อบ่งใช้',
-            error: error.message
-        });
-    }
-});
-
-// ✅ POST create new drug
+// ✅ POST create new drug - รองรับ fields ทั้งหมด
 router.post('/', async (req, res) => {
     try {
         const db = await require('../config/db');
-        console.log('📝 Received data:', req.body); // Debug log
+        console.log('📝 Received data:', req.body);
 
         const {
-            DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE
+            DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE,
+            Type1, Dose1, Indication1, Effect1, Contraindications1,
+            Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD
         } = req.body;
 
         if (!DRUG_CODE || !GENERIC_NAME) {
@@ -201,11 +132,29 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // ✅ ใช้เฉพาะ fields ที่จำเป็น
         const [result] = await db.execute(`
-            INSERT INTO TABLE_DRUG (DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE) 
-            VALUES (?, ?, ?, ?, ?)
-        `, [DRUG_CODE, GENERIC_NAME, TRADE_NAME || null, UNIT_CODE || null, UNIT_PRICE || null]);
+            INSERT INTO TABLE_DRUG (
+                DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE,
+                Type1, Dose1, Indication1, Effect1, Contraindications1,
+                Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD
+            ) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+            DRUG_CODE, 
+            GENERIC_NAME, 
+            TRADE_NAME || null, 
+            UNIT_CODE || null, 
+            UNIT_PRICE || null,
+            Type1 || null,
+            Dose1 || null,
+            Indication1 || null,
+            Effect1 || 'None',
+            Contraindications1 || 'None',
+            Comment1 || 'None',
+            Drug_formulations || null,
+            SOCIAL_CARD || 'N',
+            UCS_CARD || 'N'
+        ]);
 
         res.status(201).json({
             success: true,
@@ -218,32 +167,23 @@ router.post('/', async (req, res) => {
         });
     } catch (error) {
         console.error('❌ Error creating drug:', error);
-        console.error('❌ Error code:', error.code);
-        console.error('❌ SQL State:', error.sqlState);
 
         if (error.code === 'ER_DUP_ENTRY') {
             res.status(409).json({
                 success: false,
                 message: 'รหัสยานี้มีอยู่แล้ว'
             });
-        } else if (error.code === 'ER_NO_SUCH_TABLE') {
-            res.status(500).json({
-                success: false,
-                message: 'ไม่พบตาราง TABLE_DRUG ในฐานข้อมูล',
-                error: error.message
-            });
         } else {
             res.status(500).json({
                 success: false,
                 message: 'เกิดข้อผิดพลาดในการเพิ่มข้อมูลยา',
-                error: error.message,
-                code: error.code
+                error: error.message
             });
         }
     }
 });
 
-// ✅ PUT update drug - แก้ไขให้รับข้อมูลแค่ที่จำเป็น
+// ✅ PUT update drug - รองรับ fields ทั้งหมด
 router.put('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -251,7 +191,9 @@ router.put('/:code', async (req, res) => {
         console.log('📝 Updating drug:', code, 'with data:', req.body);
 
         const {
-            GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE
+            GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE,
+            Type1, Dose1, Indication1, Effect1, Contraindications1,
+            Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD
         } = req.body;
 
         if (!GENERIC_NAME) {
@@ -261,12 +203,29 @@ router.put('/:code', async (req, res) => {
             });
         }
 
-        // ✅ อัพเดทเฉพาะ fields ที่จำเป็น (ไม่รวม DRUG_CODE เพราะเป็น PK)
         const [result] = await db.execute(`
             UPDATE TABLE_DRUG SET 
-                GENERIC_NAME = ?, TRADE_NAME = ?, UNIT_CODE = ?, UNIT_PRICE = ?
+                GENERIC_NAME = ?, TRADE_NAME = ?, UNIT_CODE = ?, UNIT_PRICE = ?,
+                Type1 = ?, Dose1 = ?, Indication1 = ?, Effect1 = ?, 
+                Contraindications1 = ?, Comment1 = ?, Drug_formulations = ?,
+                SOCIAL_CARD = ?, UCS_CARD = ?
             WHERE DRUG_CODE = ?
-        `, [GENERIC_NAME, TRADE_NAME || null, UNIT_CODE || null, UNIT_PRICE || null, code]);
+        `, [
+            GENERIC_NAME, 
+            TRADE_NAME || null, 
+            UNIT_CODE || null, 
+            UNIT_PRICE || null,
+            Type1 || null,
+            Dose1 || null,
+            Indication1 || null,
+            Effect1 || 'None',
+            Contraindications1 || 'None',
+            Comment1 || 'None',
+            Drug_formulations || null,
+            SOCIAL_CARD || 'N',
+            UCS_CARD || 'N',
+            code
+        ]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -278,34 +237,19 @@ router.put('/:code', async (req, res) => {
         res.json({
             success: true,
             message: 'แก้ไขข้อมูลยาสำเร็จ',
-            data: {
-                DRUG_CODE: code,
-                GENERIC_NAME,
-                TRADE_NAME
-            }
+            data: { DRUG_CODE: code, GENERIC_NAME, TRADE_NAME }
         });
     } catch (error) {
         console.error('❌ Error updating drug:', error);
-        console.error('❌ Error code:', error.code);
-
-        if (error.code === 'ER_NO_SUCH_TABLE') {
-            res.status(500).json({
-                success: false,
-                message: 'ไม่พบตาราง TABLE_DRUG ในฐานข้อมูล',
-                error: error.message
-            });
-        } else {
-            res.status(500).json({
-                success: false,
-                message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลยา',
-                error: error.message,
-                code: error.code
-            });
-        }
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลยา',
+            error: error.message
+        });
     }
 });
 
-// ✅ DELETE drug - เพิ่ม error handling
+// ✅ DELETE drug
 router.delete('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -328,57 +272,43 @@ router.delete('/:code', async (req, res) => {
         });
     } catch (error) {
         console.error('❌ Error deleting drug:', error);
-        console.error('❌ Error code:', error.code);
-
-        if (error.code === 'ER_NO_SUCH_TABLE') {
-            res.status(500).json({
-                success: false,
-                message: 'ไม่พบตาราง TABLE_DRUG ในฐานข้อมูล',
-                error: error.message
-            });
-        } else {
-            res.status(500).json({
-                success: false,
-                message: 'เกิดข้อผิดพลาดในการลบข้อมูลยา',
-                error: error.message,
-                code: error.code
-            });
-        }
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการลบข้อมูลยา',
+            error: error.message
+        });
     }
 });
 
-// ✅ GET drug statistics
-router.get('/stats/summary', async (req, res) => {
+// ✅ GET drug types (Type1)
+router.get('/filters/types', async (req, res) => {
     try {
         const db = await require('../config/db');
-
-        // Total drugs
-        const [totalCount] = await db.execute('SELECT COUNT(*) as total FROM TABLE_DRUG');
-
-        // Drugs by dosage form
-        const [dosageStats] = await db.execute(`
-            SELECT DOSAGE_FORM, COUNT(*) as count 
-            FROM TABLE_DRUG 
-            WHERE DOSAGE_FORM IS NOT NULL AND DOSAGE_FORM != ''
-            GROUP BY DOSAGE_FORM
-            ORDER BY count DESC
+        const [rows] = await db.execute(`
+            SELECT DISTINCT Type1 FROM TABLE_DRUG 
+            WHERE Type1 IS NOT NULL AND Type1 != ''
+            ORDER BY Type1
         `);
-
-        res.json({
-            success: true,
-            data: {
-                totalDrugs: totalCount[0].total,
-                byDosageForm: dosageStats,
-                lastUpdated: new Date().toISOString()
-            }
-        });
+        res.json({ success: true, data: rows });
     } catch (error) {
-        console.error('Error fetching drug statistics:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการดึงสถิติข้อมูลยา',
-            error: error.message
-        });
+        console.error('Error fetching types:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ✅ GET drug formulations
+router.get('/filters/formulations', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const [rows] = await db.execute(`
+            SELECT DISTINCT Drug_formulations FROM TABLE_DRUG 
+            WHERE Drug_formulations IS NOT NULL AND Drug_formulations != ''
+            ORDER BY Drug_formulations
+        `);
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        console.error('Error fetching formulations:', error);
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
