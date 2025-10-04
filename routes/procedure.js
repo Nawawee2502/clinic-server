@@ -8,7 +8,7 @@ router.get('/', async (req, res) => {
         const { search, page = 1, limit = 50, type } = req.query;
         const offset = (page - 1) * limit;
 
-        let query = 'SELECT * FROM table_medical_procedures WHERE 1=1';
+        let query = 'SELECT * FROM TABLE_MEDICAL_PROCEDURES WHERE 1=1';
         let params = [];
 
         if (search) {
@@ -27,8 +27,7 @@ router.get('/', async (req, res) => {
 
         const [rows] = await db.execute(query, params);
 
-        // Get total count
-        let countQuery = 'SELECT COUNT(*) as total FROM table_medical_procedures WHERE 1=1';
+        let countQuery = 'SELECT COUNT(*) as total FROM TABLE_MEDICAL_PROCEDURES WHERE 1=1';
         let countParams = [];
 
         if (search) {
@@ -64,15 +63,11 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET medical procedure by code
 router.get('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
-        const [rows] = await db.execute(`
-            SELECT * FROM table_medical_procedures 
-            WHERE MEDICAL_PROCEDURE_CODE = ?
-        `, [code]);
+        const [rows] = await db.execute(`SELECT * FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ?`, [code]);
 
         if (rows.length === 0) {
             return res.status(404).json({
@@ -95,7 +90,6 @@ router.get('/:code', async (req, res) => {
     }
 });
 
-// Search medical procedures by name
 router.get('/search/:term', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -103,13 +97,10 @@ router.get('/search/:term', async (req, res) => {
         const searchTerm = `%${term}%`;
 
         const [rows] = await db.execute(`
-            SELECT 
-                MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, 
-                MED_PRO_TYPE, UNIT_PRICE
-            FROM table_medical_procedures 
+            SELECT MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE
+            FROM TABLE_MEDICAL_PROCEDURES 
             WHERE MED_PRO_NAME_THAI LIKE ? OR MED_PRO_NAME_ENG LIKE ? OR MEDICAL_PROCEDURE_CODE LIKE ?
-            ORDER BY MED_PRO_NAME_THAI
-            LIMIT 100
+            ORDER BY MED_PRO_NAME_THAI LIMIT 100
         `, [searchTerm, searchTerm, searchTerm]);
 
         res.json({
@@ -128,15 +119,12 @@ router.get('/search/:term', async (req, res) => {
     }
 });
 
-// GET medical procedures by type
 router.get('/type/:procedureType', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { procedureType } = req.params;
         const [rows] = await db.execute(`
-            SELECT * FROM table_medical_procedures 
-            WHERE MED_PRO_TYPE LIKE ?
-            ORDER BY MED_PRO_NAME_THAI
+            SELECT * FROM TABLE_MEDICAL_PROCEDURES WHERE MED_PRO_TYPE LIKE ? ORDER BY MED_PRO_NAME_THAI
         `, [`%${procedureType}%`]);
 
         res.json({
@@ -155,19 +143,14 @@ router.get('/type/:procedureType', async (req, res) => {
     }
 });
 
-// GET procedure types
 router.get('/types/list', async (req, res) => {
     try {
         const db = await require('../config/db');
         const [rows] = await db.execute(`
-            SELECT 
-                MED_PRO_TYPE,
-                COUNT(*) as count,
-                AVG(UNIT_PRICE) as avg_price
-            FROM table_medical_procedures 
+            SELECT MED_PRO_TYPE, COUNT(*) as count, AVG(UNIT_PRICE) as avg_price
+            FROM TABLE_MEDICAL_PROCEDURES 
             WHERE MED_PRO_TYPE IS NOT NULL AND MED_PRO_TYPE != ''
-            GROUP BY MED_PRO_TYPE
-            ORDER BY MED_PRO_TYPE
+            GROUP BY MED_PRO_TYPE ORDER BY MED_PRO_TYPE
         `);
 
         res.json({
@@ -185,14 +168,10 @@ router.get('/types/list', async (req, res) => {
     }
 });
 
-// POST create new medical procedure
 router.post('/', async (req, res) => {
     try {
         const db = await require('../config/db');
-        const {
-            MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG,
-            MED_PRO_TYPE, UNIT_PRICE
-        } = req.body;
+        const { MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE, SOCIAL_CARD, UCS_CARD } = req.body;
 
         if (!MEDICAL_PROCEDURE_CODE || !MED_PRO_NAME_THAI) {
             return res.status(400).json({
@@ -202,18 +181,15 @@ router.post('/', async (req, res) => {
         }
 
         const [result] = await db.execute(`
-            INSERT INTO table_medical_procedures 
-            (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
-            VALUES (?, ?, ?, ?, ?)
-        `, [MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE]);
+            INSERT INTO TABLE_MEDICAL_PROCEDURES 
+            (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE, SOCIAL_CARD, UCS_CARD) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE, SOCIAL_CARD || 'N', UCS_CARD || 'N']);
 
         res.status(201).json({
             success: true,
             message: 'เพิ่มข้อมูลหัตถการสำเร็จ',
-            data: {
-                MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG,
-                MED_PRO_TYPE, UNIT_PRICE
-            }
+            data: { MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE }
         });
     } catch (error) {
         console.error('Error creating medical procedure:', error);
@@ -232,19 +208,18 @@ router.post('/', async (req, res) => {
     }
 });
 
-// PUT update medical procedure
 router.put('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
-        const { MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE } = req.body;
+        const { MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE, SOCIAL_CARD, UCS_CARD } = req.body;
 
         const [result] = await db.execute(`
-            UPDATE table_medical_procedures SET 
+            UPDATE TABLE_MEDICAL_PROCEDURES SET 
                 MED_PRO_NAME_THAI = ?, MED_PRO_NAME_ENG = ?, 
-                MED_PRO_TYPE = ?, UNIT_PRICE = ?
+                MED_PRO_TYPE = ?, UNIT_PRICE = ?, SOCIAL_CARD = ?, UCS_CARD = ?
             WHERE MEDICAL_PROCEDURE_CODE = ?
-        `, [MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE, code]);
+        `, [MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE, SOCIAL_CARD || 'N', UCS_CARD || 'N', code]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -256,10 +231,7 @@ router.put('/:code', async (req, res) => {
         res.json({
             success: true,
             message: 'แก้ไขข้อมูลหัตถการสำเร็จ',
-            data: {
-                MEDICAL_PROCEDURE_CODE: code, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG,
-                MED_PRO_TYPE, UNIT_PRICE
-            }
+            data: { MEDICAL_PROCEDURE_CODE: code, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE }
         });
     } catch (error) {
         console.error('Error updating medical procedure:', error);
@@ -271,13 +243,12 @@ router.put('/:code', async (req, res) => {
     }
 });
 
-// DELETE medical procedure
 router.delete('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
 
-        const [result] = await db.execute('DELETE FROM table_medical_procedures WHERE MEDICAL_PROCEDURE_CODE = ?', [code]);
+        const [result] = await db.execute('DELETE FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ?', [code]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -307,36 +278,18 @@ router.delete('/:code', async (req, res) => {
     }
 });
 
-// GET procedure statistics
 router.get('/stats/summary', async (req, res) => {
     try {
         const db = await require('../config/db');
-
-        // Total procedures
-        const [totalCount] = await db.execute('SELECT COUNT(*) as total FROM table_medical_procedures');
-
-        // Procedures by type
+        const [totalCount] = await db.execute('SELECT COUNT(*) as total FROM TABLE_MEDICAL_PROCEDURES');
         const [typeStats] = await db.execute(`
-            SELECT 
-                MED_PRO_TYPE,
-                COUNT(*) as count,
-                AVG(UNIT_PRICE) as avg_price,
-                MIN(UNIT_PRICE) as min_price,
-                MAX(UNIT_PRICE) as max_price
-            FROM table_medical_procedures 
-            WHERE MED_PRO_TYPE IS NOT NULL AND MED_PRO_TYPE != ''
-            GROUP BY MED_PRO_TYPE
-            ORDER BY count DESC
+            SELECT MED_PRO_TYPE, COUNT(*) as count, AVG(UNIT_PRICE) as avg_price, MIN(UNIT_PRICE) as min_price, MAX(UNIT_PRICE) as max_price
+            FROM TABLE_MEDICAL_PROCEDURES WHERE MED_PRO_TYPE IS NOT NULL AND MED_PRO_TYPE != ''
+            GROUP BY MED_PRO_TYPE ORDER BY count DESC
         `);
-
-        // Price statistics
         const [priceStats] = await db.execute(`
-            SELECT 
-                AVG(UNIT_PRICE) as avg_price,
-                MIN(UNIT_PRICE) as min_price,
-                MAX(UNIT_PRICE) as max_price
-            FROM table_medical_procedures 
-            WHERE UNIT_PRICE IS NOT NULL AND UNIT_PRICE > 0
+            SELECT AVG(UNIT_PRICE) as avg_price, MIN(UNIT_PRICE) as min_price, MAX(UNIT_PRICE) as max_price
+            FROM TABLE_MEDICAL_PROCEDURES WHERE UNIT_PRICE IS NOT NULL AND UNIT_PRICE > 0
         `);
 
         res.json({
