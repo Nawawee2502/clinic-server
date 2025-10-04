@@ -34,8 +34,6 @@ router.get('/', async (req, res) => {
     }
 });
 
-// เพิ่มใน patients.js router
-
 // GET check ID card duplicate
 router.get('/check-idcard/:idno', async (req, res) => {
     try {
@@ -227,10 +225,8 @@ router.get('/stats/basic', async (req, res) => {
     try {
         const db = await require('../config/db');
 
-        // Total patients
         const [totalCount] = await db.execute('SELECT COUNT(*) as total FROM patient1');
 
-        // Gender distribution
         const [genderStats] = await db.execute(`
       SELECT SEX, COUNT(*) as count 
       FROM patient1 
@@ -238,7 +234,6 @@ router.get('/stats/basic', async (req, res) => {
       GROUP BY SEX
     `);
 
-        // Age groups
         const [ageGroups] = await db.execute(`
       SELECT 
         CASE 
@@ -280,7 +275,8 @@ router.post('/', async (req, res) => {
             BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
-            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES
+            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
+            SOCIAL_CARD, UCS_CARD
         } = req.body;
 
         if (!HNCODE) {
@@ -303,14 +299,16 @@ router.post('/', async (req, res) => {
         BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
         WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
         CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
-        ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
+        SOCIAL_CARD, UCS_CARD
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
             HNCODE, IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
             BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
-            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES
+            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
+            SOCIAL_CARD || 'N', UCS_CARD || 'N'
         ]);
 
         res.status(201).json({
@@ -350,7 +348,8 @@ router.put('/:hn', async (req, res) => {
             BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
-            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES
+            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
+            SOCIAL_CARD, UCS_CARD
         } = req.body;
 
         const [result] = await db.execute(`
@@ -359,14 +358,16 @@ router.put('/:hn', async (req, res) => {
         BLOOD_GROUP1 = ?, OCCUPATION1 = ?, ORIGIN1 = ?, NATIONAL1 = ?, RELIGION1 = ?, STATUS1 = ?,
         WEIGHT1 = ?, HIGH1 = ?, CARD_ADDR1 = ?, CARD_TUMBOL_CODE = ?, CARD_AMPHER_CODE = ?,
         CARD_PROVINCE_CODE = ?, ADDR1 = ?, TUMBOL_CODE = ?, AMPHER_CODE = ?, PROVINCE_CODE = ?,
-        ZIPCODE = ?, TEL1 = ?, EMAIL1 = ?, DISEASE1 = ?, DRUG_ALLERGY = ?, FOOD_ALLERGIES = ?
+        ZIPCODE = ?, TEL1 = ?, EMAIL1 = ?, DISEASE1 = ?, DRUG_ALLERGY = ?, FOOD_ALLERGIES = ?,
+        SOCIAL_CARD = ?, UCS_CARD = ?
       WHERE HNCODE = ?
     `, [
             IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
             BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
-            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES, hn
+            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
+            SOCIAL_CARD || 'N', UCS_CARD || 'N', hn
         ]);
 
         if (result.affectedRows === 0) {
