@@ -19,7 +19,11 @@ router.get('/', authenticateToken, async (req, res) => {
                 PROVINCE_CODE,
                 ZIPCODE,
                 TEL1,
-                logo1
+                logo1,
+                bank_code,
+                bank_no,
+                bank_branch,
+                bank_type
             FROM clinic_org
             LIMIT 1
         `);
@@ -61,7 +65,11 @@ router.put('/', authenticateToken, requireAdmin, async (req, res) => {
             provinceCode,
             zipcode,
             tel1,
-            logo1
+            logo1,
+            bankCode,
+            bankNo,
+            bankBranch,
+            bankType
         } = req.body;
 
         // Validation
@@ -112,6 +120,22 @@ router.put('/', authenticateToken, requireAdmin, async (req, res) => {
                 updates.push('logo1 = ?');
                 params.push(logo1);
             }
+            if (bankCode !== undefined) {
+                updates.push('bank_code = ?');
+                params.push(bankCode);
+            }
+            if (bankNo !== undefined) {
+                updates.push('bank_no = ?');
+                params.push(bankNo);
+            }
+            if (bankBranch !== undefined) {
+                updates.push('bank_branch = ?');
+                params.push(bankBranch);
+            }
+            if (bankType !== undefined) {
+                updates.push('bank_type = ?');
+                params.push(bankType);
+            }
 
             if (updates.length === 0) {
                 return res.status(400).json({
@@ -134,8 +158,9 @@ router.put('/', authenticateToken, requireAdmin, async (req, res) => {
             await db.execute(`
                 INSERT INTO clinic_org 
                 (CLINIC_CODE, CLINIC_NAME, ADDR1, TUMBOL_CODE, AMPHER_CODE, 
-                 PROVINCE_CODE, ZIPCODE, TEL1, logo1)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 PROVINCE_CODE, ZIPCODE, TEL1, logo1, bank_code, bank_no, 
+                 bank_branch, bank_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
                 clinicCode || 'CLINIC001',
                 clinicName,
@@ -145,7 +170,11 @@ router.put('/', authenticateToken, requireAdmin, async (req, res) => {
                 provinceCode,
                 zipcode,
                 tel1,
-                logo1
+                logo1,
+                bankCode,
+                bankNo,
+                bankBranch,
+                bankType
             ]);
 
             res.status(201).json({
