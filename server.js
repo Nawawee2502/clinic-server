@@ -121,6 +121,9 @@ app.get('/', (req, res) => {
             units: '/api/units',
             packages: '/api/packages',
 
+            bank: '/api/bank',
+            bookBank: '/api/book-bank',
+
             // System
             health: '/api/health',
             test: '/api/test',

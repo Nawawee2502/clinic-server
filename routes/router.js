@@ -20,6 +20,8 @@ const appointmentRoutes = require('./appointment');
 const queueRoutes = require('./queue');
 const userRoutes = require('./users');
 const clinicOrgRoutes = require('./clinic-org');
+const bankRoutes = require('./bank');
+const bookBankRoutes = require('./book-bank');
 
 // Health check endpoint
 router.get('/health', (req, res) => {
@@ -257,6 +259,8 @@ router.use('/queue', queueRoutes);
 router.use('/users', userRoutes);
 
 router.use('/clinic-org', clinicOrgRoutes);
+router.use('/bank', bankRoutes);
+router.use('/book-bank', bookBankRoutes);
 
 // Utility APIs (handled by unit-package.js)
 router.use('/', unitPackageRoutes); // This handles /units and /packages
