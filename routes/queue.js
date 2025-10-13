@@ -48,6 +48,8 @@ router.get('/today', async (req, res) => {
                 dq.APPOINTMENT_ID,
                 dq.CREATED_AT,
                 dq.QUEUE_DATE,
+                dq.SOCIAL_CARD,
+                dq.UCS_CARD,
                 -- Patient data
                 p.HNCODE,
                 p.PRENAME,
@@ -56,6 +58,8 @@ router.get('/today', async (req, res) => {
                 p.AGE,
                 p.SEX,
                 p.TEL1,
+                p.SOCIAL_CARD as PATIENT_SOCIAL_CARD,
+                p.UCS_CARD as PATIENT_UCS_CARD,
                 -- VN if exists (check from TREATMENT1)
                 t.VNO,
                 t.STATUS1 as TREATMENT_STATUS
@@ -167,10 +171,10 @@ router.post('/create', async (req, res) => {
         connection = await dbPool.getConnection();
         console.log('✅ Database connection acquired');
 
-        // Check if patient exists
+        // Check if patient exists และดึง SOCIAL_CARD, UCS_CARD
         console.log('👤 Checking patient existence for HNCODE:', HNCODE);
         const [patientCheck] = await connection.execute(
-            'SELECT HNCODE, PRENAME, NAME1, SURNAME FROM patient1 WHERE HNCODE = ?',
+            'SELECT HNCODE, PRENAME, NAME1, SURNAME, SOCIAL_CARD, UCS_CARD FROM patient1 WHERE HNCODE = ?',
             [HNCODE.trim()]
         );
 
@@ -215,7 +219,7 @@ router.post('/create', async (req, res) => {
         console.log('🔄 Starting transaction...');
         await connection.beginTransaction();
 
-        // Insert queue record
+        // Insert queue record พร้อม SOCIAL_CARD และ UCS_CARD
         console.log('💾 Inserting queue record...');
         const insertParams = [
             queueId,
@@ -226,6 +230,8 @@ router.post('/create', async (req, res) => {
             'รอตรวจ',
             'walk-in',
             (CHIEF_COMPLAINT || '').trim(),
+            patient.SOCIAL_CARD || 'N',
+            patient.UCS_CARD || 'N',
             thailandTime.toISOString()
         ];
 
@@ -234,8 +240,8 @@ router.post('/create', async (req, res) => {
         await connection.execute(`
             INSERT INTO DAILY_QUEUE (
                 QUEUE_ID, HNCODE, QUEUE_DATE, QUEUE_NUMBER, QUEUE_TIME, 
-                STATUS, TYPE, CHIEF_COMPLAINT, CREATED_AT
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                STATUS, TYPE, CHIEF_COMPLAINT, SOCIAL_CARD, UCS_CARD, CREATED_AT
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, insertParams);
 
         console.log('✅ Queue record inserted successfully');
@@ -250,7 +256,7 @@ router.post('/create', async (req, res) => {
             message: 'สร้างคิวสำเร็จ',
             data: {
                 QUEUE_ID: queueId,
-                VNO: null, // Will be created when treatment starts
+                VNO: null,
                 QUEUE_NUMBER: nextQueueNumber,
                 HNCODE: HNCODE.trim(),
                 PATIENT_NAME: `${patient.PRENAME || ''}${patient.NAME1} ${patient.SURNAME || ''}`.trim(),
@@ -258,6 +264,8 @@ router.post('/create', async (req, res) => {
                 STATUS: 'รอตรวจ',
                 QUEUE_DATE: queueDate,
                 QUEUE_TIME: queueTimeStr,
+                SOCIAL_CARD: patient.SOCIAL_CARD || 'N',
+                UCS_CARD: patient.UCS_CARD || 'N',
                 THAILAND_TIME: thailandTime.toISOString(),
                 SERVER_TIME: new Date().toISOString()
             }
@@ -344,9 +352,11 @@ router.post('/checkin', async (req, res) => {
 
         connection = await dbPool.getConnection();
 
-        // Check appointment
+        // Check appointment และดึง SOCIAL_CARD, UCS_CARD
         const [appointmentCheck] = await connection.execute(`
-            SELECT a.*, p.PRENAME, p.NAME1, p.SURNAME
+            SELECT a.*, 
+                   p.PRENAME, p.NAME1, p.SURNAME,
+                   p.SOCIAL_CARD, p.UCS_CARD
             FROM APPOINTMENT_SCHEDULE a
             LEFT JOIN patient1 p ON a.HNCODE = p.HNCODE
             WHERE a.APPOINTMENT_ID = ? 
@@ -377,12 +387,13 @@ router.post('/checkin', async (req, res) => {
 
         await connection.beginTransaction();
 
-        // Create queue from appointment
+        // Create queue from appointment พร้อม SOCIAL_CARD และ UCS_CARD
         await connection.execute(`
             INSERT INTO DAILY_QUEUE (
                 QUEUE_ID, HNCODE, QUEUE_DATE, QUEUE_NUMBER, QUEUE_TIME, 
-                STATUS, TYPE, CHIEF_COMPLAINT, APPOINTMENT_ID, CREATED_AT
-            ) VALUES (?, ?, ?, ?, ?, 'รอตรวจ', 'appointment', ?, ?, ?)
+                STATUS, TYPE, CHIEF_COMPLAINT, APPOINTMENT_ID, 
+                SOCIAL_CARD, UCS_CARD, CREATED_AT
+            ) VALUES (?, ?, ?, ?, ?, 'รอตรวจ', 'appointment', ?, ?, ?, ?, ?)
         `, [
             queueId,
             appointment.HNCODE,
@@ -391,6 +402,8 @@ router.post('/checkin', async (req, res) => {
             formatTimeForDB(thailandTime),
             appointment.REASON,
             APPOINTMENT_ID,
+            appointment.SOCIAL_CARD || 'N',
+            appointment.UCS_CARD || 'N',
             thailandTime.toISOString()
         ]);
 
@@ -413,7 +426,9 @@ router.post('/checkin', async (req, res) => {
                 HNCODE: appointment.HNCODE,
                 PATIENT_NAME: `${appointment.PRENAME || ''}${appointment.NAME1} ${appointment.SURNAME || ''}`.trim(),
                 TYPE: 'appointment',
-                APPOINTMENT_ID: APPOINTMENT_ID
+                APPOINTMENT_ID: APPOINTMENT_ID,
+                SOCIAL_CARD: appointment.SOCIAL_CARD || 'N',
+                UCS_CARD: appointment.UCS_CARD || 'N'
             }
         });
 

@@ -308,7 +308,7 @@ router.post('/', async (req, res) => {
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
             ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            SOCIAL_CARD || 'N', UCS_CARD || 'N'
+            SOCIAL_CARD, UCS_CARD
         ]);
 
         res.status(201).json({
@@ -367,7 +367,7 @@ router.put('/:hn', async (req, res) => {
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
             ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            SOCIAL_CARD || 'N', UCS_CARD || 'N', hn
+            SOCIAL_CARD, UCS_CARD, hn
         ]);
 
         if (result.affectedRows === 0) {

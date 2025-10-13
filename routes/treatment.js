@@ -388,13 +388,30 @@ router.post('/', async (req, res) => {
 
         console.log(`🔢 Generated VNO: ${VNO} (Running: ${runningNumber})`);
 
+        // ดึง SOCIAL_CARD และ UCS_CARD จาก DAILY_QUEUE
+        let socialCard = null;
+        let ucsCard = null;
+
+        if (QUEUE_ID) {
+            const [queueData] = await connection.execute(`
+                SELECT SOCIAL_CARD, UCS_CARD FROM DAILY_QUEUE WHERE QUEUE_ID = ?
+            `, [QUEUE_ID]);
+
+            if (queueData.length > 0) {
+                socialCard = queueData[0].SOCIAL_CARD;
+                ucsCard = queueData[0].UCS_CARD;
+                console.log(`📋 Retrieved from queue: SOCIAL_CARD=${socialCard}, UCS_CARD=${ucsCard}`);
+            }
+        }
+
         await connection.execute(`
             INSERT INTO TREATMENT1 (
                 VNO, HNNO, RDATE, TRDATE, WEIGHT1, HIGHT1, BT1, BP1, BP2, 
                 RR1, PR1, SPO2, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1,
                 APPOINTMENT_DATE, APPOINTMENT_TDATE, EMP_CODE, EMP_CODE1,
-                SYSTEM_DATE, SYSTEM_TIME, STATUS1, QUEUE_ID, INVESTIGATION_NOTES
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?, ?, ?)
+                SYSTEM_DATE, SYSTEM_TIME, STATUS1, QUEUE_ID, INVESTIGATION_NOTES,
+                SOCIAL_CARD, UCS_CARD
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?, ?, ?, ?, ?)
         `, [
             VNO,
             toNull(HNNO),
@@ -405,7 +422,9 @@ router.post('/', async (req, res) => {
             toNull(DXCODE), toNull(ICD10CODE), toNull(TREATMENT1),
             toNull(APPOINTMENT_DATE), toNull(APPOINTMENT_TDATE),
             toNull(EMP_CODE), toNull(EMP_CODE1), toNull(STATUS1),
-            toNull(QUEUE_ID), toNull(INVESTIGATION_NOTES)
+            toNull(QUEUE_ID), toNull(INVESTIGATION_NOTES),
+            socialCard,
+            ucsCard
         ]);
 
         if (diagnosis && (diagnosis.CHIEF_COMPLAINT || diagnosis.PRESENT_ILL || diagnosis.PHYSICAL_EXAM || diagnosis.PLAN1)) {
