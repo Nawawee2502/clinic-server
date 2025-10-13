@@ -1,54 +1,21 @@
 const express = require('express');
 const router = express.Router();
 
-// const ensureProcedureExists = async (connection, procedureCode, procedureName) => {
-//     try {
-//         // ตัดรหัสให้สั้นลงถ้ายาวเกินไป
-//         if (procedureCode.length > 15) {
-//             procedureCode = procedureCode.substring(0, 15);
-//         }
-
-//         // ตรวจสอบว่ามีหัตถการนี้อยู่หรือไม่
-//         const [existing] = await connection.execute(
-//             'SELECT MEDICAL_PROCEDURE_CODE FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ?',
-//             [procedureCode]
-//         );
-
-//         if (existing.length === 0) {
-//             // ถ้าไม่มี ให้เพิ่มใหม่
-//             await connection.execute(`
-//                 INSERT INTO TABLE_MEDICAL_PROCEDURES 
-//                 (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
-//                 VALUES (?, ?, ?, 'Custom', 0)
-//             `, [procedureCode, procedureName.substring(0, 255), procedureName.substring(0, 255)]);
-
-//             console.log(`Added new procedure: ${procedureCode} - ${procedureName}`);
-//         }
-//     } catch (error) {
-//         console.error('Error ensuring procedure exists:', error);
-//         // ไม่ throw error เพื่อไม่ให้กระทบการทำงาน
-//     }
-// };
-
 const ensureProcedureExists = async (connection, procedureCode, procedureName) => {
     try {
-        // ป้องกัน null/undefined
         let code = (procedureCode || '').toString();
         let name = (procedureName || '').toString();
 
-        // ตัดรหัสให้สั้นลงถ้ายาวเกินไป
         if (code.length > 15) {
             code = code.substring(0, 15);
         }
 
-        // ตรวจสอบว่ามีหัตถการนี้อยู่หรือไม่
         const [existing] = await connection.execute(
             'SELECT MEDICAL_PROCEDURE_CODE FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ? LIMIT 1',
             [code]
         );
 
         if (existing.length === 0) {
-            // ถ้าไม่มี ให้เพิ่มใหม่
             await connection.execute(`
                 INSERT INTO TABLE_MEDICAL_PROCEDURES 
                 (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
@@ -63,10 +30,8 @@ const ensureProcedureExists = async (connection, procedureCode, procedureName) =
         }
     } catch (error) {
         console.error('❌ Error ensuring procedure exists:', error.message);
-        // ไม่ throw error เพื่อไม่ให้กระทบการทำงานหลัก
     }
 };
-
 
 // GET all treatments with filters
 router.get('/', async (req, res) => {
@@ -121,12 +86,11 @@ router.get('/', async (req, res) => {
             SELECT 
                 t.VNO, t.HNNO, t.RDATE, t.TRDATE, t.STATUS1,
                 t.SYMPTOM, t.TREATMENT1, t.APPOINTMENT_DATE,
-                -- เพิ่ม payment fields
                 t.TOTAL_AMOUNT, t.DISCOUNT_AMOUNT, t.NET_AMOUNT,
                 t.PAYMENT_STATUS, t.PAYMENT_DATE, t.PAYMENT_TIME,
                 t.PAYMENT_METHOD, t.RECEIVED_AMOUNT, t.CHANGE_AMOUNT, t.CASHIER,
-                -- patient info
                 p.PRENAME, p.NAME1, p.SURNAME, p.AGE, p.SEX, p.TEL1,
+                p.SOCIAL_CARD, p.UCS_CARD,
                 e.EMP_NAME,
                 dx.DXNAME_THAI, dx.DXNAME_ENG,
                 icd.ICD10NAME_THAI
@@ -167,7 +131,6 @@ router.get('/', async (req, res) => {
 });
 
 // GET treatment by VNO with full details
-// GET treatment by VNO with full details - แก้ไขให้ตรงกับ TABLE_DRUG ที่เหลือเฉพาะ fields จำเป็น
 router.get('/:vno', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -175,12 +138,12 @@ router.get('/:vno', async (req, res) => {
 
         console.log(`Fetching treatment details for VNO: ${vno}`);
 
-        // Get main treatment info
         const [treatment] = await db.execute(`
             SELECT 
                 t.*,
                 p.PRENAME, p.NAME1, p.SURNAME, p.AGE, p.SEX, p.IDNO, p.TEL1,
                 p.BLOOD_GROUP1, p.ADDR1, p.DRUG_ALLERGY, p.FOOD_ALLERGIES,
+                p.SOCIAL_CARD, p.UCS_CARD,
                 e.EMP_NAME,
                 er.EMP_NAME as RECORDER_NAME,
                 dx.DXNAME_THAI, dx.DXNAME_ENG,
@@ -203,12 +166,10 @@ router.get('/:vno', async (req, res) => {
 
         console.log(`Found treatment record for VNO: ${vno}`);
 
-        // Get diagnosis details
         const [diagnosis] = await db.execute(`
             SELECT * FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?
         `, [vno]);
 
-        // Get drugs - แก้ไขให้ใช้เฉพาะ fields ที่มีจริงใน TABLE_DRUG
         const [drugs] = await db.execute(`
             SELECT 
                 td.VNO,
@@ -232,7 +193,6 @@ router.get('/:vno', async (req, res) => {
 
         console.log(`Found ${drugs.length} drugs for VNO: ${vno}`);
 
-        // Get procedures
         const [procedures] = await db.execute(`
             SELECT 
                 tmp.VNO,
@@ -254,7 +214,6 @@ router.get('/:vno', async (req, res) => {
 
         console.log(`Found ${procedures.length} procedures for VNO: ${vno}`);
 
-        // Get lab tests
         const [labTests] = await db.execute(`
             SELECT 
                 tl.VNO,
@@ -269,7 +228,6 @@ router.get('/:vno', async (req, res) => {
 
         console.log(`Found ${labTests.length} lab tests for VNO: ${vno}`);
 
-        // Get radiological tests
         const [radioTests] = await db.execute(`
             SELECT 
                 tr.VNO,
@@ -284,7 +242,6 @@ router.get('/:vno', async (req, res) => {
 
         console.log(`Found ${radioTests.length} radiological tests for VNO: ${vno}`);
 
-        // Calculate total cost
         const totalDrugCost = drugs.reduce((sum, drug) => sum + (parseFloat(drug.AMT) || 0), 0);
         const totalProcedureCost = procedures.reduce((sum, proc) => sum + (parseFloat(proc.AMT) || 0), 0);
         const totalLabCost = labTests.reduce((sum, lab) => sum + (parseFloat(lab.PRICE) || 0), 0);
@@ -334,7 +291,6 @@ router.get('/patient/:hn', async (req, res) => {
         const { hn } = req.params;
         const { page = 1, limit = 20 } = req.query;
 
-        // แปลงเป็น integer และ validate
         const limitInt = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
         const pageInt = Math.max(1, parseInt(page, 10) || 1);
         const offset = (pageInt - 1) * limitInt;
@@ -346,11 +302,13 @@ router.get('/patient/:hn', async (req, res) => {
                 t.VNO, t.RDATE, t.TRDATE, t.STATUS1, t.SYMPTOM, t.TREATMENT1,
                 e.EMP_NAME,
                 dx.DXNAME_THAI,
-                icd.ICD10NAME_THAI
+                icd.ICD10NAME_THAI,
+                p.SOCIAL_CARD, p.UCS_CARD
             FROM TREATMENT1 t
             LEFT JOIN EMPLOYEE1 e ON t.EMP_CODE = e.EMP_CODE
             LEFT JOIN TABLE_DX dx ON t.DXCODE = dx.DXCODE
             LEFT JOIN TABLE_ICD10 icd ON t.ICD10CODE = icd.ICD10CODE
+            LEFT JOIN patient1 p ON t.HNNO = p.HNCODE
             WHERE t.HNNO = ?
             ORDER BY t.RDATE DESC, t.VNO DESC
             LIMIT ${limitInt} OFFSET ${offset}
@@ -398,13 +356,13 @@ router.post('/', async (req, res) => {
             RR1, PR1, SPO2, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1,
             APPOINTMENT_DATE, APPOINTMENT_TDATE, EMP_CODE, EMP_CODE1,
             STATUS1 = 'ทำงานอยู่',
-            QUEUE_ID, // เพิ่ม QUEUE_ID
+            QUEUE_ID,
             diagnosis,
             drugs = [],
             procedures = [],
             labTests = [],
             radioTests = [],
-            INVESTIGATION_NOTES // เพิ่มฟิลด์ใหม่
+            INVESTIGATION_NOTES
         } = req.body;
 
         if (!HNNO || !EMP_CODE) {
@@ -414,13 +372,11 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // ✅ สร้าง VN Number ที่ถูกต้องจากฐานข้อมูล
         const today = new Date();
-        const buddhistYear = (today.getFullYear() + 543).toString().slice(-2); // 68
-        const month = String(today.getMonth() + 1).padStart(2, '0'); // 09
-        const day = String(today.getDate()).padStart(2, '0'); // 03
+        const buddhistYear = (today.getFullYear() + 543).toString().slice(-2);
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
 
-        // หาเลขรันนิ่งถัดไปจากฐานข้อมูล
         const [vnCount] = await connection.execute(`
             SELECT COUNT(*) + 1 as next_number
             FROM TREATMENT1 
@@ -432,7 +388,6 @@ router.post('/', async (req, res) => {
 
         console.log(`🔢 Generated VNO: ${VNO} (Running: ${runningNumber})`);
 
-        // Insert main treatment
         await connection.execute(`
             INSERT INTO TREATMENT1 (
                 VNO, HNNO, RDATE, TRDATE, WEIGHT1, HIGHT1, BT1, BP1, BP2, 
@@ -441,9 +396,9 @@ router.post('/', async (req, res) => {
                 SYSTEM_DATE, SYSTEM_TIME, STATUS1, QUEUE_ID, INVESTIGATION_NOTES
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?, ?, ?)
         `, [
-            VNO, // ✅ ใช้ VNO ที่สร้างใหม่
+            VNO,
             toNull(HNNO),
-            toNull(RDATE) || today.toISOString().split('T')[0], // ถ้าไม่มี RDATE ใช้วันนี้
+            toNull(RDATE) || today.toISOString().split('T')[0],
             toNull(TRDATE),
             toNull(WEIGHT1), toNull(HIGHT1), toNull(BT1), toNull(BP1), toNull(BP2),
             toNull(RR1), toNull(PR1), toNull(SPO2), toNull(SYMPTOM),
@@ -453,7 +408,6 @@ router.post('/', async (req, res) => {
             toNull(QUEUE_ID), toNull(INVESTIGATION_NOTES)
         ]);
 
-        // Insert diagnosis if provided
         if (diagnosis && (diagnosis.CHIEF_COMPLAINT || diagnosis.PRESENT_ILL || diagnosis.PHYSICAL_EXAM || diagnosis.PLAN1)) {
             await connection.execute(`
                 INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
@@ -461,7 +415,6 @@ router.post('/', async (req, res) => {
             `, [VNO, diagnosis.CHIEF_COMPLAINT, diagnosis.PRESENT_ILL, diagnosis.PHYSICAL_EXAM, diagnosis.PLAN1]);
         }
 
-        // Insert drugs
         for (const drug of drugs) {
             if (drug.DRUG_CODE) {
                 await connection.execute(`
@@ -471,7 +424,6 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // Insert procedures
         for (const proc of procedures) {
             if (proc.MEDICAL_PROCEDURE_CODE) {
                 await connection.execute(`
@@ -481,7 +433,6 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // Insert lab tests
         for (const lab of labTests) {
             if (lab.LABCODE) {
                 await connection.execute(`
@@ -490,7 +441,6 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // Insert radiological tests
         for (const radio of radioTests) {
             if (radio.RLCODE) {
                 await connection.execute(`
@@ -543,140 +493,6 @@ router.post('/', async (req, res) => {
 });
 
 // PUT update entire treatment
-// router.put('/:vno', async (req, res) => {
-//     const db = await require('../config/db');
-//     let connection = null;
-
-//     try {
-//         connection = await db.getConnection();
-//         await connection.beginTransaction();
-
-//         const { vno } = req.params;
-//         const {
-//             STATUS1, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1, INVESTIGATION_NOTES,
-//             // Payment fields
-//             TOTAL_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT, PAYMENT_STATUS,
-//             PAYMENT_DATE, PAYMENT_TIME, PAYMENT_METHOD, RECEIVED_AMOUNT,
-//             CHANGE_AMOUNT, CASHIER,
-//             // Related data
-//             diagnosis, drugs = [], procedures = [], labTests = [], radioTests = []
-//         } = req.body;
-
-//         // สร้าง dynamic update query
-//         const updateFields = [];
-//         const updateValues = [];
-
-//         if (STATUS1 !== undefined) {
-//             updateFields.push('STATUS1 = ?');
-//             updateValues.push(STATUS1);
-//         }
-//         if (SYMPTOM !== undefined) {
-//             updateFields.push('SYMPTOM = ?');
-//             updateValues.push(SYMPTOM);
-//         }
-//         if (DXCODE !== undefined) {
-//             updateFields.push('DXCODE = ?');
-//             updateValues.push(DXCODE);
-//         }
-//         if (ICD10CODE !== undefined) {
-//             updateFields.push('ICD10CODE = ?');
-//             updateValues.push(ICD10CODE);
-//         }
-//         if (TREATMENT1 !== undefined) {
-//             updateFields.push('TREATMENT1 = ?');
-//             updateValues.push(TREATMENT1);
-//         }
-//         if (INVESTIGATION_NOTES !== undefined) {
-//             updateFields.push('INVESTIGATION_NOTES = ?');
-//             updateValues.push(INVESTIGATION_NOTES);
-//         }
-
-//         // Payment fields
-//         if (TOTAL_AMOUNT !== undefined) {
-//             updateFields.push('TOTAL_AMOUNT = ?');
-//             updateValues.push(parseFloat(TOTAL_AMOUNT) || 0);
-//         }
-//         if (DISCOUNT_AMOUNT !== undefined) {
-//             updateFields.push('DISCOUNT_AMOUNT = ?');
-//             updateValues.push(parseFloat(DISCOUNT_AMOUNT) || 0);
-//         }
-//         if (NET_AMOUNT !== undefined) {
-//             updateFields.push('NET_AMOUNT = ?');
-//             updateValues.push(parseFloat(NET_AMOUNT) || 0);
-//         }
-//         if (PAYMENT_STATUS !== undefined) {
-//             updateFields.push('PAYMENT_STATUS = ?');
-//             updateValues.push(PAYMENT_STATUS);
-//         }
-//         if (PAYMENT_DATE !== undefined) {
-//             updateFields.push('PAYMENT_DATE = ?');
-//             updateValues.push(PAYMENT_DATE);
-//         }
-//         if (PAYMENT_TIME !== undefined) {
-//             updateFields.push('PAYMENT_TIME = ?');
-//             updateValues.push(PAYMENT_TIME);
-//         }
-//         if (PAYMENT_METHOD !== undefined) {
-//             updateFields.push('PAYMENT_METHOD = ?');
-//             updateValues.push(PAYMENT_METHOD);
-//         }
-//         if (RECEIVED_AMOUNT !== undefined) {
-//             updateFields.push('RECEIVED_AMOUNT = ?');
-//             updateValues.push(parseFloat(RECEIVED_AMOUNT) || 0);
-//         }
-//         if (CHANGE_AMOUNT !== undefined) {
-//             updateFields.push('CHANGE_AMOUNT = ?');
-//             updateValues.push(parseFloat(CHANGE_AMOUNT) || 0);
-//         }
-//         if (CASHIER !== undefined) {
-//             updateFields.push('CASHIER = ?');
-//             updateValues.push(CASHIER);
-//         }
-
-//         if (updateFields.length > 0) {
-//             updateValues.push(vno);
-
-//             const [updateResult] = await connection.execute(`
-//                 UPDATE TREATMENT1 SET ${updateFields.join(', ')} WHERE VNO = ?
-//             `, updateValues);
-
-//             if (updateResult.affectedRows === 0) {
-//                 await connection.rollback();
-//                 return res.status(404).json({
-//                     success: false,
-//                     message: 'ไม่พบข้อมูลการรักษาที่ต้องการอัปเดต'
-//                 });
-//             }
-//         }
-
-//         await connection.commit();
-
-//         res.json({
-//             success: true,
-//             message: 'อัปเดตข้อมูลการรักษาสำเร็จ',
-//             data: { VNO: vno }
-//         });
-
-//     } catch (error) {
-//         if (connection) {
-//             await connection.rollback();
-//         }
-//         console.error('Error updating treatment:', error);
-//         res.status(500).json({
-//             success: false,
-//             message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลการรักษา',
-//             error: error.message
-//         });
-//     } finally {
-//         if (connection) {
-//             connection.release();
-//         }
-//     }
-// });
-// PUT update entire treatment (TREATMENT1 + diagnosis + drugs + procedures + labTests + radioTests)
-
-// PUT update entire treatment
-// PUT update entire treatment (TREATMENT1 + payment data)
 router.put('/:vno', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
@@ -698,8 +514,6 @@ router.put('/:vno', async (req, res) => {
             SYMPTOM, diagnosis, drugs = [], procedures = [],
             labTests = [], radioTests = [], INVESTIGATION_NOTES,
             WEIGHT1, HIGHT1, BT1, PR1, RR1, BP1, BP2, SPO2,
-
-            // เพิ่มฟิลด์การชำระเงิน
             TOTAL_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT,
             PAYMENT_STATUS, PAYMENT_DATE, PAYMENT_TIME,
             PAYMENT_METHOD, RECEIVED_AMOUNT, CHANGE_AMOUNT, CASHIER
@@ -715,7 +529,6 @@ router.put('/:vno', async (req, res) => {
             NET_AMOUNT: toNull(NET_AMOUNT)
         });
 
-        // Update main treatment พร้อม vitalsign และข้อมูลการชำระเงิน
         const [updateResult] = await connection.execute(`
             UPDATE TREATMENT1 SET 
                 SYMPTOM = COALESCE(?, SYMPTOM), 
@@ -732,8 +545,6 @@ router.put('/:vno', async (req, res) => {
                 BP1 = COALESCE(?, BP1),
                 BP2 = COALESCE(?, BP2),
                 SPO2 = COALESCE(?, SPO2),
-                
-                -- ฟิลด์การชำระเงิน
                 TOTAL_AMOUNT = COALESCE(?, TOTAL_AMOUNT),
                 DISCOUNT_AMOUNT = COALESCE(?, DISCOUNT_AMOUNT),
                 NET_AMOUNT = COALESCE(?, NET_AMOUNT),
@@ -760,8 +571,6 @@ router.put('/:vno', async (req, res) => {
             toNull(BP1),
             toNull(BP2),
             toNull(SPO2),
-
-            // ฟิลด์การชำระเงิน
             toNull(TOTAL_AMOUNT) ? parseFloat(toNull(TOTAL_AMOUNT)) : null,
             toNull(DISCOUNT_AMOUNT) ? parseFloat(toNull(DISCOUNT_AMOUNT)) : null,
             toNull(NET_AMOUNT) ? parseFloat(toNull(NET_AMOUNT)) : null,
@@ -772,7 +581,6 @@ router.put('/:vno', async (req, res) => {
             toNull(RECEIVED_AMOUNT) ? parseFloat(toNull(RECEIVED_AMOUNT)) : null,
             toNull(CHANGE_AMOUNT) ? parseFloat(toNull(CHANGE_AMOUNT)) : null,
             toNull(CASHIER),
-
             vno
         ]);
 
@@ -784,7 +592,6 @@ router.put('/:vno', async (req, res) => {
             });
         }
 
-        // Update/Insert diagnosis
         if (diagnosis && typeof diagnosis === 'object') {
             await connection.execute(`
                 INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
@@ -803,13 +610,11 @@ router.put('/:vno', async (req, res) => {
             ]);
         }
 
-        // Handle drugs  
         if (drugs && Array.isArray(drugs) && drugs.length > 0) {
             await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
 
             for (const drug of drugs) {
                 if (drug.DRUG_CODE) {
-                    // ตรวจสอบว่า UNIT_CODE มีอยู่ในฐานข้อมูลหรือไม่
                     let unitCode = toNull(drug.UNIT_CODE) || 'TAB';
 
                     const [unitExists] = await connection.execute(
@@ -817,7 +622,6 @@ router.put('/:vno', async (req, res) => {
                         [unitCode]
                     );
 
-                    // ถ้าไม่มี ให้ใช้ TAB แทน
                     if (unitExists.length === 0) {
                         console.warn(`Unit code ${unitCode} not found, using TAB instead`);
                         unitCode = 'TAB';
@@ -840,7 +644,6 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // Handle procedures - ปรับปรุงให้รองรับ freestyle procedures
         if (procedures && Array.isArray(procedures) && procedures.length > 0) {
             await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
 
@@ -849,21 +652,17 @@ router.put('/:vno', async (req, res) => {
                 const procedureName = toNull(proc.PROCEDURE_NAME) || 'หัตถการที่ไม่ระบุชื่อ';
 
                 if (procedureCode) {
-                    // ตัดรหัสให้สั้นลงถ้ายาวเกินไป
                     if (procedureCode.length > 15) {
                         procedureCode = procedureCode.substring(0, 15);
                     }
 
-                    // ตรวจสอบและเตรียม UNIT_CODE ให้ถูกต้อง
                     let unitCode = toNull(proc.UNIT_CODE) || 'TIMES';
 
-                    // ตรวจสอบว่า unit code มีอยู่จริงหรือไม่
                     const [unitExists] = await connection.execute(
                         'SELECT UNIT_CODE FROM TABLE_UNIT WHERE UNIT_CODE = ?',
                         [unitCode]
                     );
 
-                    // ถ้าไม่มี ให้ใช้ unit code ที่มีอยู่แล้ว
                     if (unitExists.length === 0) {
                         try {
                             await connection.execute(
@@ -872,7 +671,6 @@ router.put('/:vno', async (req, res) => {
                             );
                             console.log(`Added new unit: ${unitCode}`);
                         } catch (unitError) {
-                            // ถ้าเพิ่มไม่ได้ ให้ใช้ unit code ที่มีอยู่แล้ว
                             const [firstUnit] = await connection.execute(
                                 'SELECT UNIT_CODE FROM TABLE_UNIT LIMIT 1'
                             );
@@ -881,7 +679,6 @@ router.put('/:vno', async (req, res) => {
                         }
                     }
 
-                    // ตรวจสอบและเพิ่มหัตถการใหม่หากจำเป็น
                     await ensureProcedureExists(connection, procedureCode, procedureName);
 
                     try {
@@ -900,7 +697,6 @@ router.put('/:vno', async (req, res) => {
                     } catch (procError) {
                         console.error(`Error inserting procedure ${procedureCode}:`, procError);
 
-                        // ถ้ายังเกิด error ให้สร้างรหัสใหม่ที่สั้นกว่า
                         if (procError.code === 'ER_NO_REFERENCED_ROW_2' || procError.code === 'ER_DATA_TOO_LONG') {
                             const timestamp = Date.now().toString().slice(-6);
                             const newCode = `P${timestamp}`;
@@ -921,14 +717,13 @@ router.put('/:vno', async (req, res) => {
                             ]);
                             console.log(`Successfully inserted fallback procedure: ${newCode}`);
                         } else {
-                            throw procError; // re-throw ถ้าเป็น error อื่น
+                            throw procError;
                         }
                     }
                 }
             }
         }
 
-        // Handle lab tests
         if (labTests && Array.isArray(labTests) && labTests.length > 0) {
             await connection.execute(`DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?`, [vno]);
 
@@ -941,7 +736,6 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // Handle radiological tests
         if (radioTests && Array.isArray(radioTests) && radioTests.length > 0) {
             await connection.execute(`DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?`, [vno]);
 
@@ -994,7 +788,6 @@ router.put('/:vno', async (req, res) => {
         }
     }
 });
-
 
 // GET treatment statistics
 router.get('/stats/summary', async (req, res) => {
@@ -1069,8 +862,6 @@ router.get('/stats/summary', async (req, res) => {
     }
 });
 
-
-
 router.post('/procedures/custom', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -1097,7 +888,6 @@ router.post('/procedures/custom', async (req, res) => {
             });
         } catch (dbError) {
             if (dbError.code === 'ER_DUP_ENTRY') {
-                // ถ้ามีอยู่แล้วก็ส่งกลับว่า success
                 res.json({
                     success: true,
                     message: 'หัตถการนี้มีอยู่แล้ว',
@@ -1138,7 +928,6 @@ router.get('/stats/revenue', async (req, res) => {
             dateFilter = 'WHERE YEAR(t.PAYMENT_DATE) = YEAR(CURDATE()) AND MONTH(t.PAYMENT_DATE) = MONTH(CURDATE())';
         }
 
-        // สถิติรวม
         const [revenueStats] = await db.execute(`
             SELECT 
                 COUNT(*) as total_treatments,
@@ -1150,7 +939,6 @@ router.get('/stats/revenue', async (req, res) => {
             ${dateFilter} AND t.PAYMENT_STATUS IS NOT NULL
         `, params);
 
-        // รายรับรายวัน
         const [dailyRevenue] = await db.execute(`
             SELECT 
                 t.PAYMENT_DATE as date,
@@ -1163,7 +951,6 @@ router.get('/stats/revenue', async (req, res) => {
             ORDER BY t.PAYMENT_DATE DESC
         `, params);
 
-        // แยกตามวิธีการชำระเงิน
         const [paymentMethods] = await db.execute(`
             SELECT 
                 t.PAYMENT_METHOD,
@@ -1194,7 +981,5 @@ router.get('/stats/revenue', async (req, res) => {
         });
     }
 });
-
-
 
 module.exports = router;
