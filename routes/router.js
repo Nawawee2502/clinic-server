@@ -22,6 +22,9 @@ const userRoutes = require('./users');
 const clinicOrgRoutes = require('./clinic-org');
 const bankRoutes = require('./bank');
 const bookBankRoutes = require('./book-bank');
+const typepayRoutes = require('./typepay');
+const typeincomeRoutes = require('./typeincome');
+
 
 // Health check endpoint
 router.get('/health', (req, res) => {
@@ -208,7 +211,21 @@ router.get('/docs', (req, res) => {
             'PUT /packages/:code': 'Update package',
             'DELETE /packages/:code': 'Delete package',
 
-            'GET /stats/summary': 'Get combined unit/package statistics'
+            'GET /stats/summary': 'Get combined unit/package statistics',
+
+            'GET /typepay': 'Get all payment types',
+            'GET /typepay/:code': 'Get payment type by code',
+            'GET /typepay/search/:term': 'Search payment types',
+            'POST /typepay': 'Create new payment type',
+            'PUT /typepay/:code': 'Update payment type',
+            'DELETE /typepay/:code': 'Delete payment type',
+
+            'GET /typeincome': 'Get all income types',
+            'GET /typeincome/:code': 'Get income type by code',
+            'GET /typeincome/search/:term': 'Search income types',
+            'POST /typeincome': 'Create new income type',
+            'PUT /typeincome/:code': 'Update income type',
+            'DELETE /typeincome/:code': 'Delete income type',
         },
         notes: {
             pagination: 'Most list endpoints support ?page=1&limit=50 parameters',
@@ -261,6 +278,9 @@ router.use('/users', userRoutes);
 router.use('/clinic-org', clinicOrgRoutes);
 router.use('/bank', bankRoutes);
 router.use('/book-bank', bookBankRoutes);
+
+router.use('/typepay', typepayRoutes);
+router.use('/typeincome', typeincomeRoutes);
 
 // Utility APIs (handled by unit-package.js)
 router.use('/', unitPackageRoutes); // This handles /units and /packages

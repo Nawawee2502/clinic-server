@@ -124,6 +124,9 @@ app.get('/', (req, res) => {
             bank: '/api/bank',
             bookBank: '/api/book-bank',
 
+            typePay: '/api/typepay',
+            typeIncome: '/api/typeincome',
+
             // System
             health: '/api/health',
             test: '/api/test',
