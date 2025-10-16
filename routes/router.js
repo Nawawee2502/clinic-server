@@ -54,7 +54,7 @@ router.get('/test', (req, res) => {
             treatment: ['treatments'],
             appointment: ['appointments', 'queue'],
             utilities: ['units', 'packages'],
-            finance: ['typepay', 'typeincome', 'supplier', 'bank', 'book-bank']
+            finance: ['typepay', 'typeincome', 'supplier', 'bank', 'book-bank', 'pay1']
         }
     });
 });
@@ -242,6 +242,17 @@ router.get('/docs', (req, res) => {
 
             'GET /bank': 'Get all banks',
             'GET /book-bank': 'Get all book banks',
+
+            // PAY1 APIs
+            'GET /pay1': 'Get all pay1 records (paginated)',
+            'GET /pay1/:refno': 'Get pay1 by REFNO with details',
+            'GET /pay1/search/:term': 'Search pay1 records',
+            'GET /pay1/generate/refno': 'Generate next REFNO',
+            'GET /pay1/stats/summary': 'Get pay1 statistics',
+            'GET /pay1/period/:year/:month': 'Get pay1 by period',
+            'POST /pay1': 'Create new pay1 with details',
+            'PUT /pay1/:refno': 'Update pay1 with details',
+            'DELETE /pay1/:refno': 'Delete pay1 with details',
         },
         notes: {
             pagination: 'Most list endpoints support ?page=1&limit=50 parameters',
@@ -299,6 +310,7 @@ router.use('/book-bank', bookBankRoutes);
 router.use('/typepay', typepayRoutes);
 router.use('/typeincome', typeincomeRoutes);
 router.use('/supplier', supplierRoutes);
+router.use('/pay1', pay1Routes);
 
 // Utility APIs (handled by unit-package.js)
 router.use('/', unitPackageRoutes); // This handles /units and /packages
