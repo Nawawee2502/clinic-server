@@ -225,9 +225,10 @@ router.get('/generate/refno', async (req, res) => {
     }
 });
 
-// POST create new pay1 with details
+// ✅ POST create new pay1 with details (แก้ใช้ getConnection)
 router.post('/', async (req, res) => {
-    const connection = await require('../config/db');
+    const pool = require('../config/db');
+    const connection = await pool.getConnection();
 
     try {
         await connection.beginTransaction();
@@ -316,12 +317,15 @@ router.post('/', async (req, res) => {
                 error: error.message
             });
         }
+    } finally {
+        connection.release();
     }
 });
 
-// PUT update pay1 with details
+// ✅ PUT update pay1 with details (แก้ใช้ getConnection)
 router.put('/:refno', async (req, res) => {
-    const connection = await require('../config/db');
+    const pool = require('../config/db');
+    const connection = await pool.getConnection();
 
     try {
         await connection.beginTransaction();
@@ -420,12 +424,15 @@ router.put('/:refno', async (req, res) => {
             message: 'เกิดข้อผิดพลาดในการแก้ไข',
             error: error.message
         });
+    } finally {
+        connection.release();
     }
 });
 
-// DELETE pay1 (with details)
+// ✅ DELETE pay1 (แก้ใช้ getConnection)
 router.delete('/:refno', async (req, res) => {
-    const connection = await require('../config/db');
+    const pool = require('../config/db');
+    const connection = await pool.getConnection();
 
     try {
         await connection.beginTransaction();
@@ -460,6 +467,8 @@ router.delete('/:refno', async (req, res) => {
             message: 'เกิดข้อผิดพลาดในการลบ',
             error: error.message
         });
+    } finally {
+        connection.release();
     }
 });
 
