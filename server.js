@@ -12,27 +12,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 // Middleware
 app.use(morgan('combined')); // HTTP request logger
 
-// ========= แก้ไข CORS Configuration =========
-// const corsOption = {
-//     origin: [
-//         "http://localhost:3002",   // Frontend
-//         "http://127.0.0.1:3002",
-//         "http://localhost:3001",   // Backend  
-//         "http://127.0.0.1:3001"
-//     ],
-//     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // เพิ่ม OPTIONS
-//     credentials: true,
-//     optionsSuccessStatus: 200,
-//     allowedHeaders: [
-//         'Origin',
-//         'X-Requested-With',
-//         'Content-Type',
-//         'Accept',
-//         'Authorization',
-//         'Cache-Control'
-//     ]
-// };
-
+// ========= CORS Configuration =========
 const corsOption = {
     origin: true, // อนุญาตทุก origin
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -47,8 +27,6 @@ const corsOption = {
         'Cache-Control'
     ]
 };
-
-
 
 // ใช้ CORS middleware ก่อน routes อื่นๆ
 app.use(cors(corsOption));
@@ -121,11 +99,12 @@ app.get('/', (req, res) => {
             units: '/api/units',
             packages: '/api/packages',
 
+            // Financial
             bank: '/api/bank',
             bookBank: '/api/book-bank',
-
             typePay: '/api/typepay',
             typeIncome: '/api/typeincome',
+            supplier: '/api/supplier',
 
             // System
             health: '/api/health',
@@ -250,10 +229,16 @@ async function startServer() {
             console.log('      GET  /api/treatments');
             console.log('      GET  /api/appointments');
             console.log('      GET  /api/queue');
+            console.log('\n   💰 Financial APIs:');
+            console.log('      GET  /api/bank');
+            console.log('      GET  /api/book-bank');
+            console.log('      GET  /api/typepay');
+            console.log('      GET  /api/typeincome');
+            console.log('      GET  /api/supplier');
             console.log('\n   ⚙️  Utility APIs:');
             console.log('      GET  /api/units');
             console.log('      GET  /api/packages');
-            console.log('\n🌐 CORS enabled for development origins');
+            console.log('\n🌐 CORS enabled for all origins');
             console.log('🔍 Request logging enabled');
             console.log('📚 Full API documentation available at /api/docs');
             console.log('🏥 =======================================\n');
@@ -296,8 +281,6 @@ async function startServer() {
 
 // Start the server
 startServer();
-
-// module.exports = app;
 
 // Export for Vercel
 if (process.env.NODE_ENV === 'production') {

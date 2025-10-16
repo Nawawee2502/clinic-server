@@ -24,6 +24,7 @@ const bankRoutes = require('./bank');
 const bookBankRoutes = require('./book-bank');
 const typepayRoutes = require('./typepay');
 const typeincomeRoutes = require('./typeincome');
+const supplierRoutes = require('./supplier');
 
 
 // Health check endpoint
@@ -51,7 +52,8 @@ router.get('/test', (req, res) => {
             testing: ['lab', 'radiological', 'ix'],
             treatment: ['treatments'],
             appointment: ['appointments', 'queue'],
-            utilities: ['units', 'packages']
+            utilities: ['units', 'packages'],
+            finance: ['typepay', 'typeincome', 'supplier', 'bank', 'book-bank']
         }
     });
 });
@@ -213,6 +215,7 @@ router.get('/docs', (req, res) => {
 
             'GET /stats/summary': 'Get combined unit/package statistics',
 
+            // Financial APIs
             'GET /typepay': 'Get all payment types',
             'GET /typepay/:code': 'Get payment type by code',
             'GET /typepay/search/:term': 'Search payment types',
@@ -226,6 +229,18 @@ router.get('/docs', (req, res) => {
             'POST /typeincome': 'Create new income type',
             'PUT /typeincome/:code': 'Update income type',
             'DELETE /typeincome/:code': 'Delete income type',
+
+            'GET /supplier': 'Get all suppliers',
+            'GET /supplier/:code': 'Get supplier by code',
+            'GET /supplier/search/:term': 'Search suppliers',
+            'GET /supplier/check/:code': 'Check if supplier code exists',
+            'GET /supplier/stats/summary': 'Get supplier statistics',
+            'POST /supplier': 'Create new supplier',
+            'PUT /supplier/:code': 'Update supplier',
+            'DELETE /supplier/:code': 'Delete supplier',
+
+            'GET /bank': 'Get all banks',
+            'GET /book-bank': 'Get all book banks',
         },
         notes: {
             pagination: 'Most list endpoints support ?page=1&limit=50 parameters',
@@ -273,14 +288,16 @@ router.use('/treatments', treatmentRoutes);
 router.use('/appointments', appointmentRoutes);
 router.use('/queue', queueRoutes);
 
+// User & Organization APIs
 router.use('/users', userRoutes);
-
 router.use('/clinic-org', clinicOrgRoutes);
+
+// Financial APIs
 router.use('/bank', bankRoutes);
 router.use('/book-bank', bookBankRoutes);
-
 router.use('/typepay', typepayRoutes);
 router.use('/typeincome', typeincomeRoutes);
+router.use('/supplier', supplierRoutes);
 
 // Utility APIs (handled by unit-package.js)
 router.use('/', unitPackageRoutes); // This handles /units and /packages
