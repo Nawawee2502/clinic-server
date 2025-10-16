@@ -13,9 +13,13 @@ const HOST = process.env.HOST || '0.0.0.0';
 app.use(morgan('combined')); // HTTP request logger
 
 // ========= CORS Configuration =========
+// แก้ไขให้รองรับทุก origin และ credentials
 const corsOption = {
-    origin: true, // อนุญาตทุก origin
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    origin: function (origin, callback) {
+        // อนุญาตทุก origin (รวม localhost และ production)
+        callback(null, true);
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     credentials: true,
     optionsSuccessStatus: 200,
     allowedHeaders: [
@@ -25,14 +29,29 @@ const corsOption = {
         'Accept',
         'Authorization',
         'Cache-Control'
-    ]
+    ],
+    exposedHeaders: ['Content-Range', 'X-Content-Range']
 };
 
 // ใช้ CORS middleware ก่อน routes อื่นๆ
 app.use(cors(corsOption));
 
-// Handle preflight requests
+// Handle preflight requests สำหรับทุก route
 app.options('*', cors(corsOption));
+
+// เพิ่ม manual CORS headers เพื่อความแน่ใจ
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
+    res.header('Access-Control-Allow-Credentials', 'true');
+
+    // ถ้าเป็น preflight request ให้ตอบกลับทันที
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
 
 app.use(express.json({ limit: '50mb' })); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-encoded bodies
@@ -64,7 +83,7 @@ app.get('/', (req, res) => {
         version: '1.0.0',
         timestamp: new Date().toISOString(),
         cors_enabled: true,
-        allowed_origins: corsOption.origin,
+        allowed_origins: 'All origins allowed',
         endpoints: {
             // Location APIs
             provinces: '/api/provinces',
@@ -209,7 +228,7 @@ async function startServer() {
             console.log(`📚 Docs: http://${HOST}:${PORT}/api/docs`);
             console.log(`⚡ Environment: ${process.env.NODE_ENV || 'development'}`);
             console.log(`📁 Public Path: ${publicPath}`);
-            console.log(`🌐 CORS Origins: All origins allowed (*)`);
+            console.log(`🌐 CORS: Enabled for ALL origins with credentials`);
             console.log('\n📋 Available API Endpoints:');
             console.log('   📍 Location APIs:');
             console.log('      GET  /api/provinces');
@@ -237,8 +256,8 @@ async function startServer() {
             console.log('      GET  /api/typepay');
             console.log('      GET  /api/typeincome');
             console.log('      GET  /api/supplier');
-            console.log('      GET  /api/pay1');
-            console.log('      GET  /api/income1');
+            console.log('      POST /api/pay1');
+            console.log('      POST /api/income1');
             console.log('\n   ⚙️  Utility APIs:');
             console.log('      GET  /api/units');
             console.log('      GET  /api/packages');
