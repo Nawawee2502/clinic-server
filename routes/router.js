@@ -26,6 +26,7 @@ const typepayRoutes = require('./typepay');
 const typeincomeRoutes = require('./typeincome');
 const supplierRoutes = require('./supplier');
 const pay1Routes = require('./pay1');
+const income1Routes = require('./income1');
 
 
 // Health check endpoint
@@ -54,7 +55,7 @@ router.get('/test', (req, res) => {
             treatment: ['treatments'],
             appointment: ['appointments', 'queue'],
             utilities: ['units', 'packages'],
-            finance: ['typepay', 'typeincome', 'supplier', 'bank', 'book-bank', 'pay1']
+            finance: ['typepay', 'typeincome', 'supplier', 'bank', 'book-bank', 'pay1', 'income1']
         }
     });
 });
@@ -253,6 +254,17 @@ router.get('/docs', (req, res) => {
             'POST /pay1': 'Create new pay1 with details',
             'PUT /pay1/:refno': 'Update pay1 with details',
             'DELETE /pay1/:refno': 'Delete pay1 with details',
+
+            // INCOME1 APIs
+            'GET /income1': 'Get all income1 records (paginated)',
+            'GET /income1/:refno': 'Get income1 by REFNO with details',
+            'GET /income1/search/:term': 'Search income1 records',
+            'GET /income1/generate/refno': 'Generate next REFNO',
+            'GET /income1/stats/summary': 'Get income1 statistics',
+            'GET /income1/period/:year/:month': 'Get income1 by period',
+            'POST /income1': 'Create new income1 with details',
+            'PUT /income1/:refno': 'Update income1 with details',
+            'DELETE /income1/:refno': 'Delete income1 with details',
         },
         notes: {
             pagination: 'Most list endpoints support ?page=1&limit=50 parameters',
@@ -311,6 +323,7 @@ router.use('/typepay', typepayRoutes);
 router.use('/typeincome', typeincomeRoutes);
 router.use('/supplier', supplierRoutes);
 router.use('/pay1', pay1Routes);
+router.use('/income1', income1Routes);
 
 // Utility APIs (handled by unit-package.js)
 router.use('/', unitPackageRoutes); // This handles /units and /packages

@@ -106,6 +106,7 @@ app.get('/', (req, res) => {
             typeIncome: '/api/typeincome',
             supplier: '/api/supplier',
             pay1: '/api/pay1',
+            income1: '/api/income1',
 
             // System
             health: '/api/health',
@@ -237,6 +238,7 @@ async function startServer() {
             console.log('      GET  /api/typeincome');
             console.log('      GET  /api/supplier');
             console.log('      GET  /api/pay1');
+            console.log('      GET  /api/income1');
             console.log('\n   ⚙️  Utility APIs:');
             console.log('      GET  /api/units');
             console.log('      GET  /api/packages');
