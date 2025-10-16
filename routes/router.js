@@ -25,6 +25,7 @@ const bookBankRoutes = require('./book-bank');
 const typepayRoutes = require('./typepay');
 const typeincomeRoutes = require('./typeincome');
 const supplierRoutes = require('./supplier');
+const pay1Routes = require('./pay1');
 
 
 // Health check endpoint
