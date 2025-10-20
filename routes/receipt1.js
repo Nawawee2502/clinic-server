@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-// GET all return1 records with details
+// GET all receipt1 records with details
 router.get('/', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -25,13 +25,13 @@ router.get('/', async (req, res) => {
                 r.TYPE_PAY,
                 r.BANK_NO,
                 tp.type_pay_name
-            FROM RETURN1 r
+            FROM RECEIPT1 r
             LEFT JOIN TYPE_PAY tp ON r.TYPE_PAY = tp.type_pay_code
             ORDER BY r.REFNO DESC
             LIMIT ? OFFSET ?
         `, [parseInt(limit), parseInt(offset)]);
 
-        const [countResult] = await db.execute('SELECT COUNT(*) as total FROM RETURN1');
+        const [countResult] = await db.execute('SELECT COUNT(*) as total FROM RECEIPT1');
 
         res.json({
             success: true,
@@ -44,10 +44,10 @@ router.get('/', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error fetching return1 records:', error);
+        console.error('Error fetching receipt1 records:', error);
         res.status(500).json({
             success: false,
-            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลใบคืนสินค้า',
+            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลใบรับสินค้า',
             error: error.message
         });
     }
@@ -58,11 +58,11 @@ router.get('/stats/summary', async (req, res) => {
     try {
         const db = await require('../config/db');
 
-        const [total] = await db.execute('SELECT COUNT(*) as count FROM RETURN1');
-        const [totalAmount] = await db.execute('SELECT SUM(GTOTAL) as sum FROM RETURN1 WHERE STATUS != "ยกเลิก"');
+        const [total] = await db.execute('SELECT COUNT(*) as count FROM RECEIPT1');
+        const [totalAmount] = await db.execute('SELECT SUM(GTOTAL) as sum FROM RECEIPT1 WHERE STATUS != "ยกเลิก"');
         const [byMonth] = await db.execute(`
             SELECT MYEAR, MONTHH, COUNT(*) as count, SUM(GTOTAL) as total
-            FROM RETURN1
+            FROM RECEIPT1
             WHERE STATUS != "ยกเลิก"
             GROUP BY MYEAR, MONTHH
             ORDER BY MYEAR DESC, MONTHH DESC
@@ -79,7 +79,7 @@ router.get('/stats/summary', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error fetching return1 stats:', error);
+        console.error('Error fetching receipt1 stats:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการดึงสถิติ',
@@ -88,7 +88,7 @@ router.get('/stats/summary', async (req, res) => {
     }
 });
 
-// GET return1 by REFNO (with details)
+// GET receipt1 by REFNO (with details)
 router.get('/:refno', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -98,7 +98,7 @@ router.get('/:refno', async (req, res) => {
             SELECT 
                 r.*,
                 tp.type_pay_name
-            FROM RETURN1 r
+            FROM RECEIPT1 r
             LEFT JOIN TYPE_PAY tp ON r.TYPE_PAY = tp.type_pay_code
             WHERE r.REFNO = ?
         `, [refno]);
@@ -106,13 +106,13 @@ router.get('/:refno', async (req, res) => {
         if (header.length === 0) {
             return res.status(404).json({
                 success: false,
-                message: 'ไม่พบข้อมูลใบคืนสินค้า'
+                message: 'ไม่พบข้อมูลใบรับสินค้า'
             });
         }
 
         const [details] = await db.execute(`
             SELECT *
-            FROM RETURN1_DT
+            FROM RECEIPT1_DT
             WHERE REFNO = ?
             ORDER BY DRUG_CODE
         `, [refno]);
@@ -125,7 +125,7 @@ router.get('/:refno', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error fetching return1:', error);
+        console.error('Error fetching receipt1:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูล',
@@ -134,7 +134,7 @@ router.get('/:refno', async (req, res) => {
     }
 });
 
-// Search return1
+// Search receipt1
 router.get('/search/:term', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -145,7 +145,7 @@ router.get('/search/:term', async (req, res) => {
             SELECT 
                 r.*,
                 tp.type_pay_name
-            FROM RETURN1 r
+            FROM RECEIPT1 r
             LEFT JOIN TYPE_PAY tp ON r.TYPE_PAY = tp.type_pay_code
             WHERE r.REFNO LIKE ? 
                OR r.SUPPLIER_CODE LIKE ?
@@ -160,7 +160,7 @@ router.get('/search/:term', async (req, res) => {
             searchTerm: term
         });
     } catch (error) {
-        console.error('Error searching return1:', error);
+        console.error('Error searching receipt1:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการค้นหา',
@@ -178,11 +178,11 @@ router.get('/generate/refno', async (req, res) => {
         const currentYear = year || new Date().getFullYear().toString();
         const currentMonth = month || (new Date().getMonth() + 1).toString().padStart(2, '0');
 
-        const prefix = `RET${currentYear}${currentMonth}`;
+        const prefix = `REC${currentYear}${currentMonth}`;
 
         const [result] = await db.execute(`
             SELECT REFNO 
-            FROM RETURN1 
+            FROM RECEIPT1 
             WHERE REFNO LIKE ?
             ORDER BY REFNO DESC 
             LIMIT 1
@@ -215,7 +215,7 @@ router.get('/generate/refno', async (req, res) => {
     }
 });
 
-// POST create new return1 with details
+// POST create new receipt1 with details
 router.post('/', async (req, res) => {
     const pool = require('../config/db');
     const connection = await pool.getConnection();
@@ -251,7 +251,7 @@ router.post('/', async (req, res) => {
         const gtotal = total + vamt;
 
         await connection.execute(`
-            INSERT INTO RETURN1 (
+            INSERT INTO RECEIPT1 (
                 REFNO, RDATE, TRDATE, MYEAR, MONTHH, 
                 SUPPLIER_CODE, DUEDATE, STATUS, TOTAL, VAT1, VAMT, GTOTAL,
                 TYPE_PAY, BANK_NO, PAY1
@@ -276,7 +276,7 @@ router.post('/', async (req, res) => {
 
         for (const detail of details) {
             await connection.execute(`
-                INSERT INTO RETURN1_DT (
+                INSERT INTO RECEIPT1_DT (
                     REFNO, DRUG_CODE, QTY, UNIT_COST, UNIT_CODE1, AMT, LOT_NO, EXPIRE_DATE
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `, [
@@ -295,7 +295,7 @@ router.post('/', async (req, res) => {
 
         res.status(201).json({
             success: true,
-            message: 'สร้างใบคืนสินค้าสำเร็จ',
+            message: 'สร้างใบรับสินค้าสำเร็จ',
             data: {
                 REFNO,
                 TOTAL: total,
@@ -305,17 +305,17 @@ router.post('/', async (req, res) => {
         });
     } catch (error) {
         await connection.rollback();
-        console.error('Error creating return1:', error);
+        console.error('Error creating receipt1:', error);
 
         if (error.code === 'ER_DUP_ENTRY') {
             res.status(409).json({
                 success: false,
-                message: 'เลขที่ใบคืนสินค้านี้มีอยู่แล้ว'
+                message: 'เลขที่ใบรับสินค้านี้มีอยู่แล้ว'
             });
         } else {
             res.status(500).json({
                 success: false,
-                message: 'เกิดข้อผิดพลาดในการสร้างใบคืนสินค้า',
+                message: 'เกิดข้อผิดพลาดในการสร้างใบรับสินค้า',
                 error: error.message
             });
         }
@@ -324,7 +324,7 @@ router.post('/', async (req, res) => {
     }
 });
 
-// PUT update return1 with details
+// PUT update receipt1 with details
 router.put('/:refno', async (req, res) => {
     const pool = require('../config/db');
     const connection = await pool.getConnection();
@@ -360,7 +360,7 @@ router.put('/:refno', async (req, res) => {
         const gtotal = total + vamt;
 
         const [result] = await connection.execute(`
-            UPDATE RETURN1 SET 
+            UPDATE RECEIPT1 SET 
                 RDATE = ?,
                 TRDATE = ?,
                 MYEAR = ?,
@@ -396,15 +396,15 @@ router.put('/:refno', async (req, res) => {
             await connection.rollback();
             return res.status(404).json({
                 success: false,
-                message: 'ไม่พบใบคืนสินค้าที่ต้องการแก้ไข'
+                message: 'ไม่พบใบรับสินค้าที่ต้องการแก้ไข'
             });
         }
 
-        await connection.execute('DELETE FROM RETURN1_DT WHERE REFNO = ?', [refno]);
+        await connection.execute('DELETE FROM RECEIPT1_DT WHERE REFNO = ?', [refno]);
 
         for (const detail of details) {
             await connection.execute(`
-                INSERT INTO RETURN1_DT (
+                INSERT INTO RECEIPT1_DT (
                     REFNO, DRUG_CODE, QTY, UNIT_COST, UNIT_CODE1, AMT, LOT_NO, EXPIRE_DATE
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `, [
@@ -423,7 +423,7 @@ router.put('/:refno', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'แก้ไขใบคืนสินค้าสำเร็จ',
+            message: 'แก้ไขใบรับสินค้าสำเร็จ',
             data: {
                 REFNO: refno,
                 TOTAL: total,
@@ -433,7 +433,7 @@ router.put('/:refno', async (req, res) => {
         });
     } catch (error) {
         await connection.rollback();
-        console.error('Error updating return1:', error);
+        console.error('Error updating receipt1:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการแก้ไข',
@@ -444,7 +444,7 @@ router.put('/:refno', async (req, res) => {
     }
 });
 
-// DELETE return1
+// DELETE receipt1
 router.delete('/:refno', async (req, res) => {
     const pool = require('../config/db');
     const connection = await pool.getConnection();
@@ -454,15 +454,15 @@ router.delete('/:refno', async (req, res) => {
 
         const { refno } = req.params;
 
-        await connection.execute('DELETE FROM RETURN1_DT WHERE REFNO = ?', [refno]);
+        await connection.execute('DELETE FROM RECEIPT1_DT WHERE REFNO = ?', [refno]);
 
-        const [result] = await connection.execute('DELETE FROM RETURN1 WHERE REFNO = ?', [refno]);
+        const [result] = await connection.execute('DELETE FROM RECEIPT1 WHERE REFNO = ?', [refno]);
 
         if (result.affectedRows === 0) {
             await connection.rollback();
             return res.status(404).json({
                 success: false,
-                message: 'ไม่พบใบคืนสินค้าที่ต้องการลบ'
+                message: 'ไม่พบใบรับสินค้าที่ต้องการลบ'
             });
         }
 
@@ -470,11 +470,11 @@ router.delete('/:refno', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'ลบใบคืนสินค้าสำเร็จ'
+            message: 'ลบใบรับสินค้าสำเร็จ'
         });
     } catch (error) {
         await connection.rollback();
-        console.error('Error deleting return1:', error);
+        console.error('Error deleting receipt1:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการลบ',
@@ -485,7 +485,7 @@ router.delete('/:refno', async (req, res) => {
     }
 });
 
-// GET return1 by month/year
+// GET receipt1 by month/year
 router.get('/period/:year/:month', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -495,7 +495,7 @@ router.get('/period/:year/:month', async (req, res) => {
             SELECT 
                 r.*,
                 tp.type_pay_name
-            FROM RETURN1 r
+            FROM RECEIPT1 r
             LEFT JOIN TYPE_PAY tp ON r.TYPE_PAY = tp.type_pay_code
             WHERE r.MYEAR = ? AND r.MONTHH = ?
             ORDER BY r.REFNO DESC
@@ -508,7 +508,7 @@ router.get('/period/:year/:month', async (req, res) => {
             period: { year, month }
         });
     } catch (error) {
-        console.error('Error fetching return1 by period:', error);
+        console.error('Error fetching receipt1 by period:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูล',
