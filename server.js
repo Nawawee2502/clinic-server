@@ -127,6 +127,13 @@ app.get('/', (req, res) => {
             pay1: '/api/pay1',
             income1: '/api/income1',
 
+            // ✅ Inventory Management
+            balMonthDrug: '/api/bal_month_drug',
+            borrow1: '/api/borrow1',
+            checkStock: '/api/check_stock',
+            receipt1: '/api/receipt1',
+            return1: '/api/return1',
+
             // System
             health: '/api/health',
             test: '/api/test',
@@ -258,6 +265,12 @@ async function startServer() {
             console.log('      GET  /api/supplier');
             console.log('      POST /api/pay1');
             console.log('      POST /api/income1');
+            console.log('\n   📦 Inventory Management APIs:');
+            console.log('      GET  /api/bal_month_drug');
+            console.log('      GET  /api/borrow1');
+            console.log('      GET  /api/check_stock');
+            console.log('      GET  /api/receipt1');
+            console.log('      GET  /api/return1');
             console.log('\n   ⚙️  Utility APIs:');
             console.log('      GET  /api/units');
             console.log('      GET  /api/packages');

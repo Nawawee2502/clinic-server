@@ -28,6 +28,13 @@ const supplierRoutes = require('./supplier');
 const pay1Routes = require('./pay1');
 const income1Routes = require('./income1');
 
+// ✅ เพิ่ม 5 routes ใหม่
+const balMonthDrugRoutes = require('./balmonthdrug');
+const borrow1Routes = require('./borrow1');
+const checkStockRoutes = require('./check_stock');
+const receipt1Routes = require('./receipt1');
+const return1Routes = require('./return1');
+
 
 // Health check endpoint
 router.get('/health', (req, res) => {
@@ -55,7 +62,8 @@ router.get('/test', (req, res) => {
             treatment: ['treatments'],
             appointment: ['appointments', 'queue'],
             utilities: ['units', 'packages'],
-            finance: ['typepay', 'typeincome', 'supplier', 'bank', 'book-bank', 'pay1', 'income1']
+            finance: ['typepay', 'typeincome', 'supplier', 'bank', 'book-bank', 'pay1', 'income1'],
+            inventory: ['bal_month_drug', 'borrow1', 'check_stock', 'receipt1', 'return1']
         }
     });
 });
@@ -265,6 +273,63 @@ router.get('/docs', (req, res) => {
             'POST /income1': 'Create new income1 with details',
             'PUT /income1/:refno': 'Update income1 with details',
             'DELETE /income1/:refno': 'Delete income1 with details',
+
+            // ✅ BAL_MONTH_DRUG APIs
+            'GET /bal_month_drug': 'Get all balance records (with optional filters)',
+            'GET /bal_month_drug/stats/summary': 'Get balance statistics',
+            'GET /bal_month_drug/period/:year/:month': 'Get balance by period',
+            'GET /bal_month_drug/drug/:drugCode': 'Get balance by drug code',
+            'GET /bal_month_drug/:year/:month/:drugCode': 'Get specific balance record',
+            'GET /bal_month_drug/search/:term': 'Search balance records',
+            'GET /bal_month_drug/check/:year/:month/:drugCode': 'Check if record exists',
+            'POST /bal_month_drug': 'Create new balance record',
+            'PUT /bal_month_drug/:year/:month/:drugCode': 'Update balance record',
+            'DELETE /bal_month_drug/:year/:month/:drugCode': 'Delete balance record',
+            'DELETE /bal_month_drug/period/:year/:month': 'Delete all records for period',
+
+            // ✅ BORROW1 APIs
+            'GET /borrow1': 'Get all borrow1 records (paginated)',
+            'GET /borrow1/:refno': 'Get borrow1 by REFNO with details',
+            'GET /borrow1/search/:term': 'Search borrow1 records',
+            'GET /borrow1/generate/refno': 'Generate next REFNO',
+            'GET /borrow1/stats/summary': 'Get borrow1 statistics',
+            'GET /borrow1/period/:year/:month': 'Get borrow1 by period',
+            'POST /borrow1': 'Create new borrow1 with details',
+            'PUT /borrow1/:refno': 'Update borrow1 with details',
+            'DELETE /borrow1/:refno': 'Delete borrow1 with details',
+
+            // ✅ CHECK_STOCK APIs
+            'GET /check_stock': 'Get all check_stock records (paginated)',
+            'GET /check_stock/:refno': 'Get check_stock by REFNO with details',
+            'GET /check_stock/search/:term': 'Search check_stock records',
+            'GET /check_stock/generate/refno': 'Generate next REFNO',
+            'GET /check_stock/stats/summary': 'Get check_stock statistics',
+            'GET /check_stock/period/:year/:month': 'Get check_stock by period',
+            'POST /check_stock': 'Create new check_stock with details',
+            'PUT /check_stock/:refno': 'Update check_stock with details',
+            'DELETE /check_stock/:refno': 'Delete check_stock with details',
+
+            // ✅ RECEIPT1 APIs
+            'GET /receipt1': 'Get all receipt1 records (paginated)',
+            'GET /receipt1/:refno': 'Get receipt1 by REFNO with details',
+            'GET /receipt1/search/:term': 'Search receipt1 records',
+            'GET /receipt1/generate/refno': 'Generate next REFNO',
+            'GET /receipt1/stats/summary': 'Get receipt1 statistics',
+            'GET /receipt1/period/:year/:month': 'Get receipt1 by period',
+            'POST /receipt1': 'Create new receipt1 with details',
+            'PUT /receipt1/:refno': 'Update receipt1 with details',
+            'DELETE /receipt1/:refno': 'Delete receipt1 with details',
+
+            // ✅ RETURN1 APIs
+            'GET /return1': 'Get all return1 records (paginated)',
+            'GET /return1/:refno': 'Get return1 by REFNO with details',
+            'GET /return1/search/:term': 'Search return1 records',
+            'GET /return1/generate/refno': 'Generate next REFNO',
+            'GET /return1/stats/summary': 'Get return1 statistics',
+            'GET /return1/period/:year/:month': 'Get return1 by period',
+            'POST /return1': 'Create new return1 with details',
+            'PUT /return1/:refno': 'Update return1 with details',
+            'DELETE /return1/:refno': 'Delete return1 with details',
         },
         notes: {
             pagination: 'Most list endpoints support ?page=1&limit=50 parameters',
@@ -324,6 +389,13 @@ router.use('/typeincome', typeincomeRoutes);
 router.use('/supplier', supplierRoutes);
 router.use('/pay1', pay1Routes);
 router.use('/income1', income1Routes);
+
+// ✅ Inventory Management APIs (5 routes ใหม่)
+router.use('/bal_month_drug', balMonthDrugRoutes);
+router.use('/borrow1', borrow1Routes);
+router.use('/check_stock', checkStockRoutes);
+router.use('/receipt1', receipt1Routes);
+router.use('/return1', return1Routes);
 
 // Utility APIs (handled by unit-package.js)
 router.use('/', unitPackageRoutes); // This handles /units and /packages
