@@ -20,6 +20,7 @@ router.get('/', async (req, res) => {
                 r.STATUS,
                 r.TOTAL,
                 r.VAT1,
+                r.TYPE_VAT,
                 r.VAMT,
                 r.GTOTAL,
                 r.TYPE_PAY,
@@ -134,24 +135,40 @@ router.get('/:refno', async (req, res) => {
     }
 });
 
-// Search receipt1
+// Search receipt1 (รองรับค้นหาตามวันที่)
 router.get('/search/:term', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { term } = req.params;
-        const searchTerm = `%${term}%`;
+        const { dateFrom, dateTo } = req.query;
 
-        const [rows] = await db.execute(`
+        let query = `
             SELECT 
                 r.*,
                 tp.type_pay_name
             FROM RECEIPT1 r
             LEFT JOIN TYPE_PAY tp ON r.TYPE_PAY = tp.type_pay_code
-            WHERE r.REFNO LIKE ? 
+            WHERE (r.REFNO LIKE ? 
                OR r.SUPPLIER_CODE LIKE ?
-               OR r.BANK_NO LIKE ?
-            ORDER BY r.REFNO DESC
-        `, [searchTerm, searchTerm, searchTerm]);
+               OR r.BANK_NO LIKE ?)
+        `;
+
+        const params = [`%${term}%`, `%${term}%`, `%${term}%`];
+
+        // เพิ่มเงื่อนไขค้นหาตามวันที่
+        if (dateFrom) {
+            query += ` AND r.RDATE >= ?`;
+            params.push(dateFrom);
+        }
+
+        if (dateTo) {
+            query += ` AND r.RDATE <= ?`;
+            params.push(dateTo);
+        }
+
+        query += ` ORDER BY r.REFNO DESC`;
+
+        const [rows] = await db.execute(query, params);
 
         res.json({
             success: true,
@@ -233,6 +250,7 @@ router.post('/', async (req, res) => {
             DUEDATE,
             STATUS,
             VAT1,
+            TYPE_VAT,
             TYPE_PAY,
             BANK_NO,
             details
@@ -245,17 +263,31 @@ router.post('/', async (req, res) => {
             });
         }
 
-        const total = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
+        // คำนวณยอดเงินตาม TYPE_VAT
+        const detailTotal = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
         const vatRate = VAT1 || 7;
-        const vamt = total * (vatRate / 100);
-        const gtotal = total + vamt;
+        const typeVat = TYPE_VAT || 'include';
+
+        let total, vamt, gtotal;
+
+        if (typeVat === 'include') {
+            // VAT รวมอยู่ในราคาแล้ว
+            gtotal = detailTotal;
+            vamt = (detailTotal * vatRate) / (100 + vatRate);
+            total = detailTotal - vamt;
+        } else {
+            // VAT ไม่รวมในราคา
+            total = detailTotal;
+            vamt = total * (vatRate / 100);
+            gtotal = total + vamt;
+        }
 
         await connection.execute(`
             INSERT INTO RECEIPT1 (
                 REFNO, RDATE, TRDATE, MYEAR, MONTHH, 
-                SUPPLIER_CODE, DUEDATE, STATUS, TOTAL, VAT1, VAMT, GTOTAL,
+                SUPPLIER_CODE, DUEDATE, STATUS, TOTAL, VAT1, TYPE_VAT, VAMT, GTOTAL,
                 TYPE_PAY, BANK_NO, PAY1
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
             REFNO,
             RDATE,
@@ -267,6 +299,7 @@ router.post('/', async (req, res) => {
             STATUS || 'ทำงานอยู่',
             total,
             vatRate,
+            typeVat,
             vamt,
             gtotal,
             TYPE_PAY,
@@ -342,6 +375,7 @@ router.put('/:refno', async (req, res) => {
             DUEDATE,
             STATUS,
             VAT1,
+            TYPE_VAT,
             TYPE_PAY,
             BANK_NO,
             details
@@ -354,10 +388,24 @@ router.put('/:refno', async (req, res) => {
             });
         }
 
-        const total = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
+        // คำนวณยอดเงินตาม TYPE_VAT
+        const detailTotal = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
         const vatRate = VAT1 || 7;
-        const vamt = total * (vatRate / 100);
-        const gtotal = total + vamt;
+        const typeVat = TYPE_VAT || 'include';
+
+        let total, vamt, gtotal;
+
+        if (typeVat === 'include') {
+            // VAT รวมอยู่ในราคาแล้ว
+            gtotal = detailTotal;
+            vamt = (detailTotal * vatRate) / (100 + vatRate);
+            total = detailTotal - vamt;
+        } else {
+            // VAT ไม่รวมในราคา
+            total = detailTotal;
+            vamt = total * (vatRate / 100);
+            gtotal = total + vamt;
+        }
 
         const [result] = await connection.execute(`
             UPDATE RECEIPT1 SET 
@@ -370,6 +418,7 @@ router.put('/:refno', async (req, res) => {
                 STATUS = ?,
                 TOTAL = ?,
                 VAT1 = ?,
+                TYPE_VAT = ?,
                 VAMT = ?,
                 GTOTAL = ?,
                 TYPE_PAY = ?,
@@ -385,6 +434,7 @@ router.put('/:refno', async (req, res) => {
             STATUS,
             total,
             vatRate,
+            typeVat,
             vamt,
             gtotal,
             TYPE_PAY,
