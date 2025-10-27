@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-// GET all balance records with optional filters
+// GET all balance records with optional filters (พร้อม JOIN TABLE_UNIT และ TABLE_DRUG)
 router.get('/', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -9,31 +9,36 @@ router.get('/', async (req, res) => {
 
         let query = `
             SELECT 
-                MYEAR,
-                MONTHH,
-                DRUG_CODE,
-                UNIT_CODE1,
-                QTY,
-                UNIT_PRICE,
-                AMT
-            FROM BAL_MONTH_DRUG
+                b.MYEAR,
+                b.MONTHH,
+                b.DRUG_CODE,
+                d.GENERIC_NAME,
+                d.TRADE_NAME,
+                b.UNIT_CODE1,
+                u.UNIT_NAME as UNIT_NAME1,
+                b.QTY,
+                b.UNIT_PRICE,
+                b.AMT
+            FROM BEG_MONTH_DRUG b
+            LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
+            LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
         `;
 
         const conditions = [];
         const params = [];
 
         if (year) {
-            conditions.push('MYEAR = ?');
+            conditions.push('b.MYEAR = ?');
             params.push(year);
         }
 
         if (month) {
-            conditions.push('MONTHH = ?');
+            conditions.push('b.MONTHH = ?');
             params.push(month);
         }
 
         if (drugCode) {
-            conditions.push('DRUG_CODE = ?');
+            conditions.push('b.DRUG_CODE = ?');
             params.push(drugCode);
         }
 
@@ -41,7 +46,7 @@ router.get('/', async (req, res) => {
             query += ' WHERE ' + conditions.join(' AND ');
         }
 
-        query += ' ORDER BY MYEAR DESC, MONTHH DESC, DRUG_CODE';
+        query += ' ORDER BY b.MYEAR DESC, b.MONTHH DESC, b.DRUG_CODE';
 
         const [rows] = await db.execute(query, params);
 
@@ -64,10 +69,10 @@ router.get('/', async (req, res) => {
 router.get('/stats/summary', async (req, res) => {
     try {
         const db = await require('../config/db');
-        
-        const [total] = await db.execute('SELECT COUNT(*) as count FROM BAL_MONTH_DRUG');
-        const [totalValue] = await db.execute('SELECT SUM(AMT) as total FROM BAL_MONTH_DRUG');
-        const [totalQty] = await db.execute('SELECT SUM(QTY) as total FROM BAL_MONTH_DRUG');
+
+        const [total] = await db.execute('SELECT COUNT(*) as count FROM BEG_MONTH_DRUG');
+        const [totalValue] = await db.execute('SELECT SUM(AMT) as total FROM BEG_MONTH_DRUG');
+        const [totalQty] = await db.execute('SELECT SUM(QTY) as total FROM BEG_MONTH_DRUG');
 
         res.json({
             success: true,
@@ -96,16 +101,21 @@ router.get('/period/:year/:month', async (req, res) => {
 
         const [rows] = await db.execute(
             `SELECT 
-                MYEAR,
-                MONTHH,
-                DRUG_CODE,
-                UNIT_CODE1,
-                QTY,
-                UNIT_PRICE,
-                AMT
-            FROM BAL_MONTH_DRUG
-            WHERE MYEAR = ? AND MONTHH = ?
-            ORDER BY DRUG_CODE`,
+                b.MYEAR,
+                b.MONTHH,
+                b.DRUG_CODE,
+                d.GENERIC_NAME,
+                d.TRADE_NAME,
+                b.UNIT_CODE1,
+                u.UNIT_NAME as UNIT_NAME1,
+                b.QTY,
+                b.UNIT_PRICE,
+                b.AMT
+            FROM BEG_MONTH_DRUG b
+            LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
+            LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
+            WHERE b.MYEAR = ? AND b.MONTHH = ?
+            ORDER BY b.DRUG_CODE`,
             [year, month]
         );
 
@@ -133,16 +143,21 @@ router.get('/drug/:drugCode', async (req, res) => {
 
         const [rows] = await db.execute(
             `SELECT 
-                MYEAR,
-                MONTHH,
-                DRUG_CODE,
-                UNIT_CODE1,
-                QTY,
-                UNIT_PRICE,
-                AMT
-            FROM BAL_MONTH_DRUG
-            WHERE DRUG_CODE = ?
-            ORDER BY MYEAR DESC, MONTHH DESC`,
+                b.MYEAR,
+                b.MONTHH,
+                b.DRUG_CODE,
+                d.GENERIC_NAME,
+                d.TRADE_NAME,
+                b.UNIT_CODE1,
+                u.UNIT_NAME as UNIT_NAME1,
+                b.QTY,
+                b.UNIT_PRICE,
+                b.AMT
+            FROM BEG_MONTH_DRUG b
+            LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
+            LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
+            WHERE b.DRUG_CODE = ?
+            ORDER BY b.MYEAR DESC, b.MONTHH DESC`,
             [drugCode]
         );
 
@@ -170,15 +185,20 @@ router.get('/:year/:month/:drugCode', async (req, res) => {
 
         const [rows] = await db.execute(
             `SELECT 
-                MYEAR,
-                MONTHH,
-                DRUG_CODE,
-                UNIT_CODE1,
-                QTY,
-                UNIT_PRICE,
-                AMT
-            FROM BAL_MONTH_DRUG
-            WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
+                b.MYEAR,
+                b.MONTHH,
+                b.DRUG_CODE,
+                d.GENERIC_NAME,
+                d.TRADE_NAME,
+                b.UNIT_CODE1,
+                u.UNIT_NAME as UNIT_NAME1,
+                b.QTY,
+                b.UNIT_PRICE,
+                b.AMT
+            FROM BEG_MONTH_DRUG b
+            LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
+            LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
+            WHERE b.MYEAR = ? AND b.MONTHH = ? AND b.DRUG_CODE = ?`,
             [year, month, drugCode]
         );
 
@@ -212,18 +232,25 @@ router.get('/search/:term', async (req, res) => {
 
         const [rows] = await db.execute(`
             SELECT 
-                MYEAR,
-                MONTHH,
-                DRUG_CODE,
-                UNIT_CODE1,
-                QTY,
-                UNIT_PRICE,
-                AMT
-            FROM BAL_MONTH_DRUG
-            WHERE DRUG_CODE LIKE ?
-               OR UNIT_CODE1 LIKE ?
-            ORDER BY MYEAR DESC, MONTHH DESC, DRUG_CODE
-        `, [searchTerm, searchTerm]);
+                b.MYEAR,
+                b.MONTHH,
+                b.DRUG_CODE,
+                d.GENERIC_NAME,
+                d.TRADE_NAME,
+                b.UNIT_CODE1,
+                u.UNIT_NAME as UNIT_NAME1,
+                b.QTY,
+                b.UNIT_PRICE,
+                b.AMT
+            FROM BEG_MONTH_DRUG b
+            LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
+            LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
+            WHERE b.DRUG_CODE LIKE ?
+               OR d.GENERIC_NAME LIKE ?
+               OR d.TRADE_NAME LIKE ?
+               OR b.UNIT_CODE1 LIKE ?
+            ORDER BY b.MYEAR DESC, b.MONTHH DESC, b.DRUG_CODE
+        `, [searchTerm, searchTerm, searchTerm, searchTerm]);
 
         res.json({
             success: true,
@@ -248,9 +275,16 @@ router.get('/check/:year/:month/:drugCode', async (req, res) => {
         const { year, month, drugCode } = req.params;
 
         const [rows] = await db.execute(
-            `SELECT MYEAR, MONTHH, DRUG_CODE, QTY, AMT 
-             FROM BAL_MONTH_DRUG 
-             WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
+            `SELECT 
+                b.MYEAR, 
+                b.MONTHH, 
+                b.DRUG_CODE, 
+                b.QTY, 
+                b.AMT,
+                d.TRADE_NAME
+             FROM BEG_MONTH_DRUG b
+             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
+             WHERE b.MYEAR = ? AND b.MONTHH = ? AND b.DRUG_CODE = ?`,
             [year, month, drugCode]
         );
 
@@ -291,9 +325,22 @@ router.post('/', async (req, res) => {
             });
         }
 
+        // Check if drug exists
+        const [drugCheck] = await db.execute(
+            'SELECT DRUG_CODE FROM TABLE_DRUG WHERE DRUG_CODE = ?',
+            [DRUG_CODE]
+        );
+
+        if (drugCheck.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'ไม่พบรหัสยานี้ในระบบ'
+            });
+        }
+
         // Check if record already exists
         const [existing] = await db.execute(
-            'SELECT * FROM BAL_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
+            'SELECT * FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
             [MYEAR, MONTHH, DRUG_CODE]
         );
 
@@ -305,7 +352,7 @@ router.post('/', async (req, res) => {
         }
 
         await db.execute(
-            `INSERT INTO BAL_MONTH_DRUG (
+            `INSERT INTO BEG_MONTH_DRUG (
                 MYEAR, 
                 MONTHH, 
                 DRUG_CODE, 
@@ -368,7 +415,7 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
         } = req.body;
 
         const [result] = await db.execute(
-            `UPDATE BAL_MONTH_DRUG SET 
+            `UPDATE BEG_MONTH_DRUG SET 
                 UNIT_CODE1 = ?, 
                 QTY = ?, 
                 UNIT_PRICE = ?, 
@@ -422,7 +469,7 @@ router.delete('/:year/:month/:drugCode', async (req, res) => {
         const { year, month, drugCode } = req.params;
 
         const [result] = await db.execute(
-            'DELETE FROM BAL_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
+            'DELETE FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
             [year, month, drugCode]
         );
 
@@ -454,7 +501,7 @@ router.delete('/period/:year/:month', async (req, res) => {
         const { year, month } = req.params;
 
         const [result] = await db.execute(
-            'DELETE FROM BAL_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ?',
+            'DELETE FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ?',
             [year, month]
         );
 

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-// ✅ GET all drugs with enhanced filtering
+// ✅ GET all drugs with enhanced filtering (พร้อม JOIN TABLE_UNIT)
 router.get('/', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -12,54 +12,64 @@ router.get('/', async (req, res) => {
         const pageInt = Math.max(1, parseInt(page) || 1);
         const offset = (pageInt - 1) * limitInt;
 
-        let query = `SELECT * FROM TABLE_DRUG WHERE 1=1`;
+        // JOIN กับ TABLE_UNIT เพื่อดึงชื่อหน่วย
+        let query = `
+            SELECT 
+                d.*,
+                u1.UNIT_NAME as UNIT_NAME,
+                u2.UNIT_NAME as UNIT_NAME1
+            FROM TABLE_DRUG d
+            LEFT JOIN TABLE_UNIT u1 ON d.UNIT_CODE = u1.UNIT_CODE
+            LEFT JOIN TABLE_UNIT u2 ON d.UNIT_CODE1 = u2.UNIT_CODE
+            WHERE 1=1
+        `;
         let params = [];
 
         if (search) {
-            query += ` AND (GENERIC_NAME LIKE ? OR TRADE_NAME LIKE ? OR DRUG_CODE LIKE ?)`;
+            query += ` AND (d.GENERIC_NAME LIKE ? OR d.TRADE_NAME LIKE ? OR d.DRUG_CODE LIKE ?)`;
             const searchTerm = `%${search}%`;
             params.push(searchTerm, searchTerm, searchTerm);
         }
 
         if (type) {
-            query += ` AND Type1 LIKE ?`;
+            query += ` AND d.Type1 LIKE ?`;
             params.push(`%${type}%`);
         }
 
         if (unit_code) {
-            query += ` AND UNIT_CODE = ?`;
+            query += ` AND d.UNIT_CODE = ?`;
             params.push(unit_code);
         }
 
         if (drug_formulations) {
-            query += ` AND Drug_formulations = ?`;
+            query += ` AND d.Drug_formulations = ?`;
             params.push(drug_formulations);
         }
 
-        query += ` ORDER BY GENERIC_NAME LIMIT ${limitInt} OFFSET ${offset}`;
+        query += ` ORDER BY d.GENERIC_NAME LIMIT ${limitInt} OFFSET ${offset}`;
 
         console.log('🔍 Executing query:', query);
         const [rows] = await db.execute(query, params);
 
         // Get total count
-        let countQuery = `SELECT COUNT(*) as total FROM TABLE_DRUG WHERE 1=1`;
+        let countQuery = `SELECT COUNT(*) as total FROM TABLE_DRUG d WHERE 1=1`;
         let countParams = [];
 
         if (search) {
-            countQuery += ` AND (GENERIC_NAME LIKE ? OR TRADE_NAME LIKE ? OR DRUG_CODE LIKE ?)`;
+            countQuery += ` AND (d.GENERIC_NAME LIKE ? OR d.TRADE_NAME LIKE ? OR d.DRUG_CODE LIKE ?)`;
             const searchTerm = `%${search}%`;
             countParams.push(searchTerm, searchTerm, searchTerm);
         }
         if (type) {
-            countQuery += ` AND Type1 LIKE ?`;
+            countQuery += ` AND d.Type1 LIKE ?`;
             countParams.push(`%${type}%`);
         }
         if (unit_code) {
-            countQuery += ` AND UNIT_CODE = ?`;
+            countQuery += ` AND d.UNIT_CODE = ?`;
             countParams.push(unit_code);
         }
         if (drug_formulations) {
-            countQuery += ` AND Drug_formulations = ?`;
+            countQuery += ` AND d.Drug_formulations = ?`;
             countParams.push(drug_formulations);
         }
 
@@ -85,13 +95,22 @@ router.get('/', async (req, res) => {
     }
 });
 
-// ✅ GET drug by code
+// ✅ GET drug by code (พร้อม JOIN TABLE_UNIT)
 router.get('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
 
-        const [rows] = await db.execute(`SELECT * FROM TABLE_DRUG WHERE DRUG_CODE = ?`, [code]);
+        const [rows] = await db.execute(`
+            SELECT 
+                d.*,
+                u1.UNIT_NAME as UNIT_NAME,
+                u2.UNIT_NAME as UNIT_NAME1
+            FROM TABLE_DRUG d
+            LEFT JOIN TABLE_UNIT u1 ON d.UNIT_CODE = u1.UNIT_CODE
+            LEFT JOIN TABLE_UNIT u2 ON d.UNIT_CODE1 = u2.UNIT_CODE
+            WHERE d.DRUG_CODE = ?
+        `, [code]);
 
         if (rows.length === 0) {
             return res.status(404).json({
@@ -121,7 +140,7 @@ router.post('/', async (req, res) => {
         console.log('📝 Received data:', req.body);
 
         const {
-            DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE,
+            DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_CODE1, UNIT_PRICE,
             Type1, Dose1, Indication1, Effect1, Contraindications1,
             Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD
         } = req.body;
@@ -135,16 +154,17 @@ router.post('/', async (req, res) => {
 
         const [result] = await db.execute(`
             INSERT INTO TABLE_DRUG (
-                DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE,
+                DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_CODE1, UNIT_PRICE,
                 Type1, Dose1, Indication1, Effect1, Contraindications1,
                 Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD
             ) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
             DRUG_CODE,
             GENERIC_NAME,
             TRADE_NAME || null,
             UNIT_CODE || null,
+            UNIT_CODE1 || 'NONE',
             UNIT_PRICE || null,
             Type1 || null,
             Dose1 || null,
@@ -192,7 +212,7 @@ router.put('/:code', async (req, res) => {
         console.log('📝 Updating drug:', code, 'with data:', req.body);
 
         const {
-            GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE,
+            GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_CODE1, UNIT_PRICE,
             Type1, Dose1, Indication1, Effect1, Contraindications1,
             Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD
         } = req.body;
@@ -206,7 +226,7 @@ router.put('/:code', async (req, res) => {
 
         const [result] = await db.execute(`
             UPDATE TABLE_DRUG SET 
-                GENERIC_NAME = ?, TRADE_NAME = ?, UNIT_CODE = ?, UNIT_PRICE = ?,
+                GENERIC_NAME = ?, TRADE_NAME = ?, UNIT_CODE = ?, UNIT_CODE1 = ?, UNIT_PRICE = ?,
                 Type1 = ?, Dose1 = ?, Indication1 = ?, Effect1 = ?, 
                 Contraindications1 = ?, Comment1 = ?, Drug_formulations = ?,
                 SOCIAL_CARD = ?, UCS_CARD = ?
@@ -215,6 +235,7 @@ router.put('/:code', async (req, res) => {
             GENERIC_NAME,
             TRADE_NAME || null,
             UNIT_CODE || null,
+            UNIT_CODE1 || 'NONE',
             UNIT_PRICE || null,
             Type1 || null,
             Dose1 || null,
@@ -309,6 +330,23 @@ router.get('/filters/formulations', async (req, res) => {
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error('Error fetching formulations:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ✅ GET unit codes (สำหรับ dropdown)
+router.get('/filters/units', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const [rows] = await db.execute(`
+            SELECT UNIT_CODE, UNIT_NAME 
+            FROM TABLE_UNIT 
+            WHERE UNIT_CODE != 'NONE'
+            ORDER BY UNIT_NAME
+        `);
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        console.error('Error fetching units:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
