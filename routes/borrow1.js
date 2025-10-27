@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-// GET all borrow1 records with details
+// GET all borrow1 records with details (แก้ไข: เพิ่ม JOIN กับ EMPLOYEE1)
 router.get('/', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -10,16 +10,18 @@ router.get('/', async (req, res) => {
 
         const [rows] = await db.execute(`
             SELECT 
-                REFNO,
-                RDATE,
-                TRDATE,
-                MYEAR,
-                MONTHH,
-                EMP_CODE,
-                STATUS,
-                TOTAL
-            FROM BORROW1
-            ORDER BY REFNO DESC
+                b.REFNO,
+                b.RDATE,
+                b.TRDATE,
+                b.MYEAR,
+                b.MONTHH,
+                b.EMP_CODE,
+                e.EMP_NAME,
+                b.STATUS,
+                b.TOTAL
+            FROM BORROW1 b
+            LEFT JOIN EMPLOYEE1 e ON b.EMP_CODE = e.EMP_CODE
+            ORDER BY b.REFNO DESC
             LIMIT ? OFFSET ?
         `, [parseInt(limit), parseInt(offset)]);
 
@@ -80,16 +82,19 @@ router.get('/stats/summary', async (req, res) => {
     }
 });
 
-// GET borrow1 by REFNO (with details)
+// GET borrow1 by REFNO (with details) - แก้ไข: เพิ่ม JOIN กับ EMPLOYEE1
 router.get('/:refno', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { refno } = req.params;
 
         const [header] = await db.execute(`
-            SELECT *
-            FROM BORROW1
-            WHERE REFNO = ?
+            SELECT 
+                b.*,
+                e.EMP_NAME
+            FROM BORROW1 b
+            LEFT JOIN EMPLOYEE1 e ON b.EMP_CODE = e.EMP_CODE
+            WHERE b.REFNO = ?
         `, [refno]);
 
         if (header.length === 0) {
@@ -123,7 +128,7 @@ router.get('/:refno', async (req, res) => {
     }
 });
 
-// Search borrow1
+// Search borrow1 - แก้ไข: เพิ่ม JOIN กับ EMPLOYEE1 และค้นหาชื่อพนักงานด้วย
 router.get('/search/:term', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -131,12 +136,16 @@ router.get('/search/:term', async (req, res) => {
         const searchTerm = `%${term}%`;
 
         const [rows] = await db.execute(`
-            SELECT *
-            FROM BORROW1
-            WHERE REFNO LIKE ? 
-               OR EMP_CODE LIKE ?
-            ORDER BY REFNO DESC
-        `, [searchTerm, searchTerm]);
+            SELECT 
+                b.*,
+                e.EMP_NAME
+            FROM BORROW1 b
+            LEFT JOIN EMPLOYEE1 e ON b.EMP_CODE = e.EMP_CODE
+            WHERE b.REFNO LIKE ? 
+               OR b.EMP_CODE LIKE ?
+               OR e.EMP_NAME LIKE ?
+            ORDER BY b.REFNO DESC
+        `, [searchTerm, searchTerm, searchTerm]);
 
         res.json({
             success: true,
@@ -433,17 +442,20 @@ router.delete('/:refno', async (req, res) => {
     }
 });
 
-// GET borrow1 by month/year
+// GET borrow1 by month/year - แก้ไข: เพิ่ม JOIN กับ EMPLOYEE1
 router.get('/period/:year/:month', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { year, month } = req.params;
 
         const [rows] = await db.execute(`
-            SELECT *
-            FROM BORROW1
-            WHERE MYEAR = ? AND MONTHH = ?
-            ORDER BY REFNO DESC
+            SELECT 
+                b.*,
+                e.EMP_NAME
+            FROM BORROW1 b
+            LEFT JOIN EMPLOYEE1 e ON b.EMP_CODE = e.EMP_CODE
+            WHERE b.MYEAR = ? AND b.MONTHH = ?
+            ORDER BY b.REFNO DESC
         `, [year, parseInt(month)]);
 
         res.json({
