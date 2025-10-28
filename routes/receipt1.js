@@ -263,6 +263,9 @@ router.post('/', async (req, res) => {
             });
         }
 
+        const year = MYEAR || new Date().getFullYear();
+        const month = MONTHH || (new Date().getMonth() + 1);
+
         // คำนวณยอดเงินตาม TYPE_VAT
         const detailTotal = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
         const vatRate = VAT1 || 7;
@@ -271,12 +274,10 @@ router.post('/', async (req, res) => {
         let total, vamt, gtotal;
 
         if (typeVat === 'include') {
-            // VAT รวมอยู่ในราคาแล้ว
             gtotal = detailTotal;
             vamt = (detailTotal * vatRate) / (100 + vatRate);
             total = detailTotal - vamt;
         } else {
-            // VAT ไม่รวมในราคา
             total = detailTotal;
             vamt = total * (vatRate / 100);
             gtotal = total + vamt;
@@ -292,8 +293,8 @@ router.post('/', async (req, res) => {
             REFNO,
             RDATE,
             TRDATE || RDATE,
-            MYEAR || new Date().getFullYear(),
-            MONTHH || (new Date().getMonth() + 1),
+            year,
+            month,
             SUPPLIER_CODE,
             DUEDATE,
             STATUS || 'ทำงานอยู่',
@@ -322,13 +323,62 @@ router.post('/', async (req, res) => {
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
             ]);
+
+            // ** อัปเดต STOCK_CARD **
+            // เช็คว่ามีข้อมูลใน STOCK_CARD สำหรับยาตัวนี้ในเดือนนี้หรือยัง
+            const [stockCheck] = await connection.execute(`
+                SELECT * FROM STOCK_CARD 
+                WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
+            `, [year, month, detail.DRUG_CODE]);
+
+            if (stockCheck.length > 0) {
+                // ถ้ามีแล้ว อัปเดตเพิ่ม IN1 และ IN1_AMT
+                await connection.execute(`
+                    UPDATE STOCK_CARD 
+                    SET IN1 = IN1 + ?, 
+                        IN1_AMT = IN1_AMT + ?
+                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
+                `, [
+                    detail.QTY,
+                    detail.AMT,
+                    year,
+                    month,
+                    detail.DRUG_CODE
+                ]);
+            } else {
+                // ถ้ายังไม่มี สร้างข้อมูลใหม่
+                await connection.execute(`
+                    INSERT INTO STOCK_CARD (
+                        REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
+                        BEG1, IN1, OUT1, UPD1, UNIT_COST, IN1_AMT, OUT1_AMT, UPD1_AMT, LOTNO, EXPIRE_DATE
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    REFNO,
+                    RDATE,
+                    TRDATE || RDATE,
+                    year,
+                    month,
+                    detail.DRUG_CODE,
+                    detail.UNIT_CODE1,
+                    0, // BEG1
+                    detail.QTY, // IN1
+                    0, // OUT1
+                    0, // UPD1
+                    detail.UNIT_COST,
+                    detail.AMT, // IN1_AMT
+                    0, // OUT1_AMT
+                    0, // UPD1_AMT
+                    detail.LOT_NO,
+                    detail.EXPIRE_DATE
+                ]);
+            }
         }
 
         await connection.commit();
 
         res.status(201).json({
             success: true,
-            message: 'สร้างใบรับสินค้าสำเร็จ',
+            message: 'สร้างใบรับสินค้าสำเร็จ และอัปเดต STOCK_CARD แล้ว',
             data: {
                 REFNO,
                 TOTAL: total,
@@ -388,6 +438,31 @@ router.put('/:refno', async (req, res) => {
             });
         }
 
+        // ดึงข้อมูลเดิมก่อนแก้ไข
+        const [oldDetails] = await connection.execute(`
+            SELECT * FROM RECEIPT1_DT WHERE REFNO = ?
+        `, [refno]);
+
+        const [oldHeader] = await connection.execute(`
+            SELECT * FROM RECEIPT1 WHERE REFNO = ?
+        `, [refno]);
+
+        // ลบข้อมูลใน STOCK_CARD ของรายการเดิม
+        for (const oldDetail of oldDetails) {
+            await connection.execute(`
+                UPDATE STOCK_CARD 
+                SET IN1 = IN1 - ?, 
+                    IN1_AMT = IN1_AMT - ?
+                WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
+            `, [
+                oldDetail.QTY,
+                oldDetail.AMT,
+                oldHeader[0].MYEAR,
+                oldHeader[0].MONTHH,
+                oldDetail.DRUG_CODE
+            ]);
+        }
+
         // คำนวณยอดเงินตาม TYPE_VAT
         const detailTotal = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
         const vatRate = VAT1 || 7;
@@ -396,12 +471,10 @@ router.put('/:refno', async (req, res) => {
         let total, vamt, gtotal;
 
         if (typeVat === 'include') {
-            // VAT รวมอยู่ในราคาแล้ว
             gtotal = detailTotal;
             vamt = (detailTotal * vatRate) / (100 + vatRate);
             total = detailTotal - vamt;
         } else {
-            // VAT ไม่รวมในราคา
             total = detailTotal;
             vamt = total * (vatRate / 100);
             gtotal = total + vamt;
@@ -467,13 +540,59 @@ router.put('/:refno', async (req, res) => {
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
             ]);
+
+            // ** อัปเดต STOCK_CARD **
+            const [stockCheck] = await connection.execute(`
+                SELECT * FROM STOCK_CARD 
+                WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
+            `, [MYEAR, MONTHH, detail.DRUG_CODE]);
+
+            if (stockCheck.length > 0) {
+                await connection.execute(`
+                    UPDATE STOCK_CARD 
+                    SET IN1 = IN1 + ?, 
+                        IN1_AMT = IN1_AMT + ?
+                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
+                `, [
+                    detail.QTY,
+                    detail.AMT,
+                    MYEAR,
+                    MONTHH,
+                    detail.DRUG_CODE
+                ]);
+            } else {
+                await connection.execute(`
+                    INSERT INTO STOCK_CARD (
+                        REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
+                        BEG1, IN1, OUT1, UPD1, UNIT_COST, IN1_AMT, OUT1_AMT, UPD1_AMT, LOTNO, EXPIRE_DATE
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    refno,
+                    RDATE,
+                    TRDATE || RDATE,
+                    MYEAR,
+                    MONTHH,
+                    detail.DRUG_CODE,
+                    detail.UNIT_CODE1,
+                    0,
+                    detail.QTY,
+                    0,
+                    0,
+                    detail.UNIT_COST,
+                    detail.AMT,
+                    0,
+                    0,
+                    detail.LOT_NO,
+                    detail.EXPIRE_DATE
+                ]);
+            }
         }
 
         await connection.commit();
 
         res.json({
             success: true,
-            message: 'แก้ไขใบรับสินค้าสำเร็จ',
+            message: 'แก้ไขใบรับสินค้าสำเร็จ และอัปเดต STOCK_CARD แล้ว',
             data: {
                 REFNO: refno,
                 TOTAL: total,
@@ -504,6 +623,33 @@ router.delete('/:refno', async (req, res) => {
 
         const { refno } = req.params;
 
+        // ดึงข้อมูลก่อนลบเพื่อเอาไปลบใน STOCK_CARD
+        const [oldDetails] = await connection.execute(`
+            SELECT * FROM RECEIPT1_DT WHERE REFNO = ?
+        `, [refno]);
+
+        const [oldHeader] = await connection.execute(`
+            SELECT * FROM RECEIPT1 WHERE REFNO = ?
+        `, [refno]);
+
+        if (oldHeader.length > 0) {
+            // ลบข้อมูลใน STOCK_CARD
+            for (const oldDetail of oldDetails) {
+                await connection.execute(`
+                    UPDATE STOCK_CARD 
+                    SET IN1 = IN1 - ?, 
+                        IN1_AMT = IN1_AMT - ?
+                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
+                `, [
+                    oldDetail.QTY,
+                    oldDetail.AMT,
+                    oldHeader[0].MYEAR,
+                    oldHeader[0].MONTHH,
+                    oldDetail.DRUG_CODE
+                ]);
+            }
+        }
+
         await connection.execute('DELETE FROM RECEIPT1_DT WHERE REFNO = ?', [refno]);
 
         const [result] = await connection.execute('DELETE FROM RECEIPT1 WHERE REFNO = ?', [refno]);
@@ -520,7 +666,7 @@ router.delete('/:refno', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'ลบใบรับสินค้าสำเร็จ'
+            message: 'ลบใบรับสินค้าสำเร็จ และอัปเดต STOCK_CARD แล้ว'
         });
     } catch (error) {
         await connection.rollback();

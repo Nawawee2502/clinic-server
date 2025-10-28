@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
                 b.QTY,
                 b.UNIT_PRICE,
                 b.AMT
-            FROM BEG_MONTH_DRUG b
+            FROM STOCK_CARD b
             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
         `;
@@ -70,9 +70,9 @@ router.get('/stats/summary', async (req, res) => {
     try {
         const db = await require('../config/db');
 
-        const [total] = await db.execute('SELECT COUNT(*) as count FROM BEG_MONTH_DRUG');
-        const [totalValue] = await db.execute('SELECT SUM(AMT) as total FROM BEG_MONTH_DRUG');
-        const [totalQty] = await db.execute('SELECT SUM(QTY) as total FROM BEG_MONTH_DRUG');
+        const [total] = await db.execute('SELECT COUNT(*) as count FROM STOCK_CARD');
+        const [totalValue] = await db.execute('SELECT SUM(AMT) as total FROM STOCK_CARD');
+        const [totalQty] = await db.execute('SELECT SUM(QTY) as total FROM STOCK_CARD');
 
         res.json({
             success: true,
@@ -111,7 +111,7 @@ router.get('/period/:year/:month', async (req, res) => {
                 b.QTY,
                 b.UNIT_PRICE,
                 b.AMT
-            FROM BEG_MONTH_DRUG b
+            FROM STOCK_CARD b
             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
             WHERE b.MYEAR = ? AND b.MONTHH = ?
@@ -153,7 +153,7 @@ router.get('/drug/:drugCode', async (req, res) => {
                 b.QTY,
                 b.UNIT_PRICE,
                 b.AMT
-            FROM BEG_MONTH_DRUG b
+            FROM STOCK_CARD b
             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
             WHERE b.DRUG_CODE = ?
@@ -195,7 +195,7 @@ router.get('/:year/:month/:drugCode', async (req, res) => {
                 b.QTY,
                 b.UNIT_PRICE,
                 b.AMT
-            FROM BEG_MONTH_DRUG b
+            FROM STOCK_CARD b
             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
             WHERE b.MYEAR = ? AND b.MONTHH = ? AND b.DRUG_CODE = ?`,
@@ -242,7 +242,7 @@ router.get('/search/:term', async (req, res) => {
                 b.QTY,
                 b.UNIT_PRICE,
                 b.AMT
-            FROM BEG_MONTH_DRUG b
+            FROM STOCK_CARD b
             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
             WHERE b.DRUG_CODE LIKE ?
@@ -282,7 +282,7 @@ router.get('/check/:year/:month/:drugCode', async (req, res) => {
                 b.QTY, 
                 b.AMT,
                 d.TRADE_NAME
-             FROM BEG_MONTH_DRUG b
+             FROM STOCK_CARD b
              LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
              WHERE b.MYEAR = ? AND b.MONTHH = ? AND b.DRUG_CODE = ?`,
             [year, month, drugCode]
@@ -305,8 +305,12 @@ router.get('/check/:year/:month/:drugCode', async (req, res) => {
 
 // POST create new balance record
 router.post('/', async (req, res) => {
+    const pool = require('../config/db');
+    const connection = await pool.getConnection();
+
     try {
-        const db = await require('../config/db');
+        await connection.beginTransaction();
+
         const {
             MYEAR,
             MONTHH,
@@ -314,7 +318,10 @@ router.post('/', async (req, res) => {
             UNIT_CODE1,
             QTY,
             UNIT_PRICE,
-            AMT
+            AMT,
+            LOT_NO,
+            EXPIRE_DATE,
+            TEXPIRE_DATE
         } = req.body;
 
         // Validate required fields
@@ -326,7 +333,7 @@ router.post('/', async (req, res) => {
         }
 
         // Check if drug exists
-        const [drugCheck] = await db.execute(
+        const [drugCheck] = await connection.execute(
             'SELECT DRUG_CODE FROM TABLE_DRUG WHERE DRUG_CODE = ?',
             [DRUG_CODE]
         );
@@ -338,9 +345,9 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // Check if record already exists
-        const [existing] = await db.execute(
-            'SELECT * FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
+        // Check if record already exists in STOCK_CARD
+        const [existing] = await connection.execute(
+            'SELECT * FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
             [MYEAR, MONTHH, DRUG_CODE]
         );
 
@@ -351,20 +358,59 @@ router.post('/', async (req, res) => {
             });
         }
 
-        await db.execute(
-            `INSERT INTO BEG_MONTH_DRUG (
+        // 1. เพิ่มข้อมูลเข้า STOCK_CARD (ยอดยกมา = BEG1)
+        await connection.execute(
+            `INSERT INTO STOCK_CARD (
                 MYEAR, 
                 MONTHH, 
                 DRUG_CODE, 
                 UNIT_CODE1, 
-                QTY, 
-                UNIT_PRICE, 
-                AMT
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                BEG1,
+                IN1,
+                OUT1,
+                UPD1,
+                UNIT_COST,
+                IN1_AMT,
+                OUT1_AMT,
+                UPD1_AMT,
+                LOTNO,
+                EXPIRE_DATE
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 MYEAR,
                 MONTHH,
                 DRUG_CODE,
+                UNIT_CODE1 || null,
+                QTY || 0,           // BEG1 = ยอดยกมา
+                0,                   // IN1
+                0,                   // OUT1
+                0,                   // UPD1
+                UNIT_PRICE || 0,    // UNIT_COST
+                0,                   // IN1_AMT
+                0,                   // OUT1_AMT
+                0,                   // UPD1_AMT
+                LOT_NO || null,
+                EXPIRE_DATE || null
+            ]
+        );
+
+        // 2. เพิ่มข้อมูลเข้า BAL_DRUG
+        await connection.execute(
+            `INSERT INTO BAL_DRUG (
+                DRUG_CODE,
+                LOT_NO,
+                EXPIRE_DATE,
+                TEXPIRE_DATE,
+                UNIT_CODE1,
+                QTY,
+                UNIT_PRICE,
+                AMT
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                DRUG_CODE,
+                LOT_NO || null,
+                EXPIRE_DATE || null,
+                TEXPIRE_DATE || null,
                 UNIT_CODE1 || null,
                 QTY || 0,
                 UNIT_PRICE || 0,
@@ -372,9 +418,11 @@ router.post('/', async (req, res) => {
             ]
         );
 
+        await connection.commit();
+
         res.status(201).json({
             success: true,
-            message: 'เพิ่มข้อมูลยอดยกมาสำเร็จ',
+            message: 'เพิ่มข้อมูลยอดยกมาสำเร็จ และอัปเดต BAL_DRUG แล้ว',
             data: {
                 MYEAR,
                 MONTHH,
@@ -382,10 +430,14 @@ router.post('/', async (req, res) => {
                 UNIT_CODE1,
                 QTY,
                 UNIT_PRICE,
-                AMT
+                AMT,
+                LOT_NO,
+                EXPIRE_DATE,
+                TEXPIRE_DATE
             }
         });
     } catch (error) {
+        await connection.rollback();
         console.error('Error creating balance record:', error);
         if (error.code === 'ER_DUP_ENTRY') {
             res.status(409).json({
@@ -399,33 +451,45 @@ router.post('/', async (req, res) => {
                 error: error.message
             });
         }
+    } finally {
+        connection.release();
     }
 });
 
 // PUT update balance record
 router.put('/:year/:month/:drugCode', async (req, res) => {
+    const pool = require('../config/db');
+    const connection = await pool.getConnection();
+
     try {
-        const db = await require('../config/db');
+        await connection.beginTransaction();
+
         const { year, month, drugCode } = req.params;
         const {
             UNIT_CODE1,
             QTY,
             UNIT_PRICE,
-            AMT
+            AMT,
+            LOT_NO,
+            EXPIRE_DATE,
+            TEXPIRE_DATE
         } = req.body;
 
-        const [result] = await db.execute(
-            `UPDATE BEG_MONTH_DRUG SET 
+        // 1. อัปเดต STOCK_CARD
+        const [result] = await connection.execute(
+            `UPDATE STOCK_CARD SET 
                 UNIT_CODE1 = ?, 
-                QTY = ?, 
-                UNIT_PRICE = ?, 
-                AMT = ?
+                BEG1 = ?, 
+                UNIT_COST = ?,
+                LOTNO = ?,
+                EXPIRE_DATE = ?
             WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
             [
                 UNIT_CODE1 || null,
                 QTY || 0,
                 UNIT_PRICE || 0,
-                AMT || 0,
+                LOT_NO || null,
+                EXPIRE_DATE || null,
                 year,
                 month,
                 drugCode
@@ -433,15 +497,47 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
         );
 
         if (result.affectedRows === 0) {
+            await connection.rollback();
             return res.status(404).json({
                 success: false,
                 message: 'ไม่พบข้อมูลยอดยกมาที่ต้องการแก้ไข'
             });
         }
 
+        // 2. อัปเดต BAL_DRUG (ลบเดิมแล้วเพิ่มใหม่ เพื่อให้แน่ใจว่าข้อมูลตรงกัน)
+        await connection.execute(
+            'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ?',
+            [drugCode]
+        );
+
+        await connection.execute(
+            `INSERT INTO BAL_DRUG (
+                DRUG_CODE,
+                LOT_NO,
+                EXPIRE_DATE,
+                TEXPIRE_DATE,
+                UNIT_CODE1,
+                QTY,
+                UNIT_PRICE,
+                AMT
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                drugCode,
+                LOT_NO || null,
+                EXPIRE_DATE || null,
+                TEXPIRE_DATE || null,
+                UNIT_CODE1 || null,
+                QTY || 0,
+                UNIT_PRICE || 0,
+                AMT || 0
+            ]
+        );
+
+        await connection.commit();
+
         res.json({
             success: true,
-            message: 'แก้ไขข้อมูลยอดยกมาสำเร็จ',
+            message: 'แก้ไขข้อมูลยอดยกมาสำเร็จ และอัปเดต BAL_DRUG แล้ว',
             data: {
                 MYEAR: year,
                 MONTHH: month,
@@ -449,74 +545,121 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
                 UNIT_CODE1,
                 QTY,
                 UNIT_PRICE,
-                AMT
+                AMT,
+                LOT_NO,
+                EXPIRE_DATE,
+                TEXPIRE_DATE
             }
         });
     } catch (error) {
+        await connection.rollback();
         console.error('Error updating balance record:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลยอดยกมา',
             error: error.message
         });
+    } finally {
+        connection.release();
     }
 });
 
 // DELETE balance record
 router.delete('/:year/:month/:drugCode', async (req, res) => {
+    const pool = require('../config/db');
+    const connection = await pool.getConnection();
+
     try {
-        const db = await require('../config/db');
+        await connection.beginTransaction();
+
         const { year, month, drugCode } = req.params;
 
-        const [result] = await db.execute(
-            'DELETE FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
+        // 1. ลบข้อมูลจาก STOCK_CARD
+        const [result] = await connection.execute(
+            'DELETE FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
             [year, month, drugCode]
         );
 
         if (result.affectedRows === 0) {
+            await connection.rollback();
             return res.status(404).json({
                 success: false,
                 message: 'ไม่พบข้อมูลยอดยกมาที่ต้องการลบ'
             });
         }
 
+        // 2. ลบข้อมูลจาก BAL_DRUG
+        await connection.execute(
+            'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ?',
+            [drugCode]
+        );
+
+        await connection.commit();
+
         res.json({
             success: true,
-            message: 'ลบข้อมูลยอดยกมาสำเร็จ'
+            message: 'ลบข้อมูลยอดยกมาสำเร็จ และลบข้อมูลใน BAL_DRUG แล้ว'
         });
     } catch (error) {
+        await connection.rollback();
         console.error('Error deleting balance record:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการลบข้อมูลยอดยกมา',
             error: error.message
         });
+    } finally {
+        connection.release();
     }
 });
 
 // DELETE all records for a specific period
 router.delete('/period/:year/:month', async (req, res) => {
+    const pool = require('../config/db');
+    const connection = await pool.getConnection();
+
     try {
-        const db = await require('../config/db');
+        await connection.beginTransaction();
+
         const { year, month } = req.params;
 
-        const [result] = await db.execute(
-            'DELETE FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ?',
+        // ดึงรายการ DRUG_CODE ก่อนลบ
+        const [drugs] = await connection.execute(
+            'SELECT DRUG_CODE FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ?',
             [year, month]
         );
 
+        // ลบข้อมูลจาก STOCK_CARD
+        const [result] = await connection.execute(
+            'DELETE FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ?',
+            [year, month]
+        );
+
+        // ลบข้อมูลจาก BAL_DRUG สำหรับยาที่ลบไป
+        for (const drug of drugs) {
+            await connection.execute(
+                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ?',
+                [drug.DRUG_CODE]
+            );
+        }
+
+        await connection.commit();
+
         res.json({
             success: true,
-            message: `ลบข้อมูลยอดยกมา ${result.affectedRows} รายการสำเร็จ`,
+            message: `ลบข้อมูลยอดยกมา ${result.affectedRows} รายการสำเร็จ และลบข้อมูลใน BAL_DRUG แล้ว`,
             deletedCount: result.affectedRows
         });
     } catch (error) {
+        await connection.rollback();
         console.error('Error deleting balance records:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการลบข้อมูลยอดยกมา',
             error: error.message
         });
+    } finally {
+        connection.release();
     }
 });
 
