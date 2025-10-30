@@ -310,6 +310,7 @@ router.get('/check/:year/:month/:drugCode', async (req, res) => {
 });
 
 // POST create new balance record (เพิ่มทั้ง 3 ตาราง)
+// POST create new balance record (เพิ่มทั้ง 3 ตาราง)
 router.post('/', async (req, res) => {
     const pool = require('../config/db');
     const connection = await pool.getConnection();
@@ -367,6 +368,7 @@ router.post('/', async (req, res) => {
         }
 
         // 1. เพิ่มข้อมูลเข้า BEG_MONTH_DRUG (ตารางหลัก)
+        console.log('📝 Inserting into BEG_MONTH_DRUG...');
         await connection.execute(
             `INSERT INTO BEG_MONTH_DRUG (
                 MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
@@ -382,38 +384,86 @@ router.post('/', async (req, res) => {
                 AMT || 0
             ]
         );
+        console.log('✅ Inserted into BEG_MONTH_DRUG');
 
-        // 2. เพิ่มข้อมูลเข้า STOCK_CARD
-        await connection.execute(
-            `INSERT INTO STOCK_CARD (
-                MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
-                BEG1, IN1, OUT1, UPD1,
-                UNIT_COST, IN1_AMT, OUT1_AMT, UPD1_AMT,
-                LOTNO, EXPIRE_DATE
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1 || null,
-                QTY || 0, 0, 0, 0,
-                UNIT_PRICE || 0, 0, 0, 0,
-                '-', '-'
-            ]
+        // 2. เพิ่มหรืออัปเดต STOCK_CARD (REFNO = 'BEG')
+        console.log('📝 Managing STOCK_CARD...');
+        const [stockCheck] = await connection.execute(
+            'SELECT * FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
+            [MYEAR, MONTHH, DRUG_CODE]
         );
 
-        // 3. เพิ่มข้อมูลเข้า BAL_DRUG
-        await connection.execute(
-            `INSERT INTO BAL_DRUG (
-                DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
-                UNIT_CODE1, QTY, UNIT_PRICE, AMT
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                DRUG_CODE, '-', '-', '-',
-                UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0
-            ]
+        if (stockCheck.length > 0) {
+            // ถ้ามีอยู่แล้ว ให้อัปเดต
+            await connection.execute(
+                `UPDATE STOCK_CARD SET 
+                    REFNO = 'BEG',
+                    UNIT_CODE1 = ?, 
+                    BEG1 = ?, 
+                    UNIT_COST = ?
+                WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
+                [UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, MYEAR, MONTHH, DRUG_CODE]
+            );
+            console.log('✅ Updated STOCK_CARD with REFNO = BEG');
+        } else {
+            // ถ้ายังไม่มี ให้สร้างใหม่
+            await connection.execute(
+                `INSERT INTO STOCK_CARD (
+                    REFNO, RDATE, TRDATE,
+                    MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
+                    BEG1, IN1, OUT1, UPD1,
+                    UNIT_COST, IN1_AMT, OUT1_AMT, UPD1_AMT,
+                    LOTNO, EXPIRE_DATE
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    'BEG', // ✅ REFNO = 'BEG'
+                    new Date().toISOString().slice(0, 10), // RDATE
+                    new Date().toISOString().slice(0, 10), // TRDATE
+                    MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1 || null,
+                    QTY || 0, 0, 0, 0,
+                    UNIT_PRICE || 0, 0, 0, 0,
+                    '-', '-'
+                ]
+            );
+            console.log('✅ Inserted into STOCK_CARD with REFNO = BEG');
+        }
+
+        // 3. เพิ่มหรืออัปเดต BAL_DRUG
+        console.log('📝 Managing BAL_DRUG...');
+        const [balCheck] = await connection.execute(
+            'SELECT * FROM BAL_DRUG WHERE DRUG_CODE = ?',
+            [DRUG_CODE]
         );
+
+        if (balCheck.length > 0) {
+            // ถ้ามีอยู่แล้ว ให้อัปเดต (สะสมจำนวน)
+            await connection.execute(
+                `UPDATE BAL_DRUG SET 
+                    UNIT_CODE1 = ?,
+                    QTY = QTY + ?,
+                    UNIT_PRICE = ?,
+                    AMT = AMT + ?
+                WHERE DRUG_CODE = ?`,
+                [UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0, DRUG_CODE]
+            );
+            console.log('✅ Updated BAL_DRUG');
+        } else {
+            // ถ้ายังไม่มี ให้สร้างใหม่
+            await connection.execute(
+                `INSERT INTO BAL_DRUG (
+                    DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
+                    UNIT_CODE1, QTY, UNIT_PRICE, AMT
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    DRUG_CODE, '-', '-', '-',
+                    UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0
+                ]
+            );
+            console.log('✅ Inserted into BAL_DRUG');
+        }
 
         await connection.commit();
-
-        console.log('✅ Balance record created successfully in 3 tables');
+        console.log('✅ Transaction committed successfully');
 
         res.status(201).json({
             success: true,
@@ -423,16 +473,22 @@ router.post('/', async (req, res) => {
     } catch (error) {
         await connection.rollback();
         console.error('❌ Error creating balance:', error);
+        console.error('❌ Error code:', error.code);
+        console.error('❌ Error message:', error.sqlMessage || error.message);
+
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการเพิ่มข้อมูลยอดยกมา',
-            error: error.message
+            error: error.message,
+            code: error.code,
+            sqlMessage: error.sqlMessage
         });
     } finally {
         connection.release();
     }
 });
 
+// PUT update balance record (อัปเดตทั้ง 3 ตาราง)
 // PUT update balance record (อัปเดตทั้ง 3 ตาราง)
 router.put('/:year/:month/:drugCode', async (req, res) => {
     const pool = require('../config/db');
@@ -465,24 +521,45 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
             });
         }
 
-        // 2. อัปเดต STOCK_CARD
+        // 2. อัปเดต STOCK_CARD (REFNO = 'BEG')
         await connection.execute(
             `UPDATE STOCK_CARD SET 
-                UNIT_CODE1 = ?, BEG1 = ?, UNIT_COST = ?
+                REFNO = 'BEG',
+                UNIT_CODE1 = ?, 
+                BEG1 = ?, 
+                UNIT_COST = ?
             WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
             [UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, year, month, drugCode]
         );
+        console.log('✅ Updated STOCK_CARD with REFNO = BEG');
 
-        // 3. อัปเดต BAL_DRUG (ลบแล้วเพิ่มใหม่)
-        await connection.execute('DELETE FROM BAL_DRUG WHERE DRUG_CODE = ?', [drugCode]);
-        await connection.execute(
-            `INSERT INTO BAL_DRUG (DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE, UNIT_CODE1, QTY, UNIT_PRICE, AMT) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [drugCode, '-', '-', '-', UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0]
+        // 3. อัปเดต BAL_DRUG
+        const [balCheck] = await connection.execute(
+            'SELECT * FROM BAL_DRUG WHERE DRUG_CODE = ?',
+            [drugCode]
         );
 
-        await connection.commit();
+        if (balCheck.length > 0) {
+            await connection.execute(
+                `UPDATE BAL_DRUG SET 
+                    UNIT_CODE1 = ?, 
+                    QTY = ?, 
+                    UNIT_PRICE = ?, 
+                    AMT = ?
+                WHERE DRUG_CODE = ?`,
+                [UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0, drugCode]
+            );
+        } else {
+            await connection.execute(
+                `INSERT INTO BAL_DRUG (
+                    DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE, 
+                    UNIT_CODE1, QTY, UNIT_PRICE, AMT
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [drugCode, '-', '-', '-', UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0]
+            );
+        }
 
+        await connection.commit();
         console.log('✅ Balance record updated successfully in 3 tables');
 
         res.json({

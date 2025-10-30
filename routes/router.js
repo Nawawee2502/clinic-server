@@ -34,6 +34,8 @@ const borrow1Routes = require('./borrow1');
 const checkStockRoutes = require('./check_stock');
 const receipt1Routes = require('./receipt1');
 const return1Routes = require('./return1');
+const balDrugRoutes = require('./bal-drug');
+
 
 
 // Health check endpoint
@@ -396,6 +398,8 @@ router.use('/borrow1', borrow1Routes);
 router.use('/check_stock', checkStockRoutes);
 router.use('/receipt1', receipt1Routes);
 router.use('/return1', return1Routes);
+router.use('/bal_drug', balDrugRoutes);
+
 
 // Utility APIs (handled by unit-package.js)
 router.use('/', unitPackageRoutes); // This handles /units and /packages
