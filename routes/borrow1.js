@@ -270,60 +270,38 @@ router.post('/', async (req, res) => {
                 detail.EXPIRE_DATE
             ]);
 
-            // ** อัปเดต STOCK_CARD (OUT1, OUT1_AMT) **
-            const [stockCheck] = await connection.execute(`
-                SELECT * FROM STOCK_CARD 
-                WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
-            `, [year, month, detail.DRUG_CODE]);
-
-            if (stockCheck.length > 0) {
-                // อัปเดตเพิ่ม OUT1 และ OUT1_AMT
-                await connection.execute(`
-                    UPDATE STOCK_CARD 
-                    SET OUT1 = OUT1 + ?, 
-                        OUT1_AMT = OUT1_AMT + ?
-                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
-                `, [
-                    detail.QTY,
-                    detail.AMT,
-                    year,
-                    month,
-                    detail.DRUG_CODE
-                ]);
-            } else {
-                // สร้างข้อมูลใหม่
-                await connection.execute(`
-                    INSERT INTO STOCK_CARD (
-                        REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
-                        BEG1, IN1, OUT1, UPD1, UNIT_COST, IN1_AMT, OUT1_AMT, UPD1_AMT, LOTNO, EXPIRE_DATE
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `, [
-                    REFNO,
-                    RDATE,
-                    TRDATE || RDATE,
-                    year,
-                    month,
-                    detail.DRUG_CODE,
-                    detail.UNIT_CODE1,
-                    0, // BEG1
-                    0, // IN1
-                    detail.QTY, // OUT1
-                    0, // UPD1
-                    detail.UNIT_COST,
-                    0, // IN1_AMT
-                    detail.AMT, // OUT1_AMT
-                    0, // UPD1_AMT
-                    detail.LOT_NO,
-                    detail.EXPIRE_DATE
-                ]);
-            }
+            // ** เพิ่มข้อมูลใน STOCK_CARD (INSERT ใหม่ทุกครั้ง ไม่ UPDATE) - ใบเบิกเป็นการออก **
+            await connection.execute(`
+                INSERT INTO STOCK_CARD (
+                    REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
+                    BEG1, IN1, OUT1, UPD1, UNIT_COST, IN1_AMT, OUT1_AMT, UPD1_AMT, LOTNO, EXPIRE_DATE
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                REFNO,
+                RDATE,
+                TRDATE || RDATE,
+                year,
+                month,
+                detail.DRUG_CODE,
+                detail.UNIT_CODE1,
+                0, // BEG1
+                0, // IN1
+                detail.QTY, // OUT1
+                0, // UPD1
+                detail.UNIT_COST,
+                0, // IN1_AMT
+                detail.AMT, // OUT1_AMT
+                0, // UPD1_AMT
+                detail.LOT_NO,
+                detail.EXPIRE_DATE
+            ]);
         }
 
         await connection.commit();
 
         res.status(201).json({
             success: true,
-            message: 'สร้างใบเบิกสินค้าสำเร็จ และอัปเดต STOCK_CARD แล้ว',
+            message: 'สร้างใบเบิกสินค้าสำเร็จ และเพิ่มข้อมูลใน STOCK_CARD แล้ว',
             data: {
                 REFNO,
                 TOTAL: total,
@@ -377,30 +355,10 @@ router.put('/:refno', async (req, res) => {
             });
         }
 
-        // ดึงข้อมูลเดิมก่อนแก้ไข
-        const [oldDetails] = await connection.execute(`
-            SELECT * FROM BORROW1_DT WHERE REFNO = ?
+        // ลบข้อมูลใน STOCK_CARD ที่เกี่ยวข้องกับ REFNO นี้ก่อน
+        await connection.execute(`
+            DELETE FROM STOCK_CARD WHERE REFNO = ?
         `, [refno]);
-
-        const [oldHeader] = await connection.execute(`
-            SELECT * FROM BORROW1 WHERE REFNO = ?
-        `, [refno]);
-
-        // ลบข้อมูลใน STOCK_CARD ของรายการเดิม
-        for (const oldDetail of oldDetails) {
-            await connection.execute(`
-                UPDATE STOCK_CARD 
-                SET OUT1 = OUT1 - ?, 
-                    OUT1_AMT = OUT1_AMT - ?
-                WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
-            `, [
-                oldDetail.QTY,
-                oldDetail.AMT,
-                oldHeader[0].MYEAR,
-                oldHeader[0].MONTHH,
-                oldDetail.DRUG_CODE
-            ]);
-        }
 
         const total = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
 
@@ -451,58 +409,38 @@ router.put('/:refno', async (req, res) => {
                 detail.EXPIRE_DATE
             ]);
 
-            // ** อัปเดต STOCK_CARD **
-            const [stockCheck] = await connection.execute(`
-                SELECT * FROM STOCK_CARD 
-                WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
-            `, [MYEAR, MONTHH, detail.DRUG_CODE]);
-
-            if (stockCheck.length > 0) {
-                await connection.execute(`
-                    UPDATE STOCK_CARD 
-                    SET OUT1 = OUT1 + ?, 
-                        OUT1_AMT = OUT1_AMT + ?
-                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
-                `, [
-                    detail.QTY,
-                    detail.AMT,
-                    MYEAR,
-                    MONTHH,
-                    detail.DRUG_CODE
-                ]);
-            } else {
-                await connection.execute(`
-                    INSERT INTO STOCK_CARD (
-                        REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
-                        BEG1, IN1, OUT1, UPD1, UNIT_COST, IN1_AMT, OUT1_AMT, UPD1_AMT, LOTNO, EXPIRE_DATE
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `, [
-                    refno,
-                    RDATE,
-                    TRDATE || RDATE,
-                    MYEAR,
-                    MONTHH,
-                    detail.DRUG_CODE,
-                    detail.UNIT_CODE1,
-                    0,
-                    0,
-                    detail.QTY,
-                    0,
-                    detail.UNIT_COST,
-                    0,
-                    detail.AMT,
-                    0,
-                    detail.LOT_NO,
-                    detail.EXPIRE_DATE
-                ]);
-            }
+            // ** เพิ่มข้อมูลใน STOCK_CARD (INSERT ใหม่ทุกครั้ง) **
+            await connection.execute(`
+                INSERT INTO STOCK_CARD (
+                    REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
+                    BEG1, IN1, OUT1, UPD1, UNIT_COST, IN1_AMT, OUT1_AMT, UPD1_AMT, LOTNO, EXPIRE_DATE
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                refno,
+                RDATE,
+                TRDATE || RDATE,
+                MYEAR,
+                MONTHH,
+                detail.DRUG_CODE,
+                detail.UNIT_CODE1,
+                0,
+                0,
+                detail.QTY,
+                0,
+                detail.UNIT_COST,
+                0,
+                detail.AMT,
+                0,
+                detail.LOT_NO,
+                detail.EXPIRE_DATE
+            ]);
         }
 
         await connection.commit();
 
         res.json({
             success: true,
-            message: 'แก้ไขใบเบิกสินค้าสำเร็จ และอัปเดต STOCK_CARD แล้ว',
+            message: 'แก้ไขใบเบิกสินค้าสำเร็จ และเพิ่มข้อมูลใน STOCK_CARD แล้ว',
             data: {
                 REFNO: refno,
                 TOTAL: total,
@@ -532,32 +470,10 @@ router.delete('/:refno', async (req, res) => {
 
         const { refno } = req.params;
 
-        // ดึงข้อมูลก่อนลบ
-        const [oldDetails] = await connection.execute(`
-            SELECT * FROM BORROW1_DT WHERE REFNO = ?
+        // ลบข้อมูลใน STOCK_CARD ที่เกี่ยวข้องกับ REFNO นี้
+        await connection.execute(`
+            DELETE FROM STOCK_CARD WHERE REFNO = ?
         `, [refno]);
-
-        const [oldHeader] = await connection.execute(`
-            SELECT * FROM BORROW1 WHERE REFNO = ?
-        `, [refno]);
-
-        if (oldHeader.length > 0) {
-            // ลบข้อมูลใน STOCK_CARD
-            for (const oldDetail of oldDetails) {
-                await connection.execute(`
-                    UPDATE STOCK_CARD 
-                    SET OUT1 = OUT1 - ?, 
-                        OUT1_AMT = OUT1_AMT - ?
-                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
-                `, [
-                    oldDetail.QTY,
-                    oldDetail.AMT,
-                    oldHeader[0].MYEAR,
-                    oldHeader[0].MONTHH,
-                    oldDetail.DRUG_CODE
-                ]);
-            }
-        }
 
         await connection.execute('DELETE FROM BORROW1_DT WHERE REFNO = ?', [refno]);
 
@@ -575,7 +491,7 @@ router.delete('/:refno', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'ลบใบเบิกสินค้าสำเร็จ และอัปเดต STOCK_CARD แล้ว'
+            message: 'ลบใบเบิกสินค้าสำเร็จ และลบข้อมูลใน STOCK_CARD แล้ว'
         });
     } catch (error) {
         await connection.rollback();
