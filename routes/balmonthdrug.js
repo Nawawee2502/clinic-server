@@ -318,10 +318,7 @@ router.post('/', async (req, res) => {
             UNIT_CODE1,
             QTY,
             UNIT_PRICE,
-            AMT,
-            LOT_NO,
-            EXPIRE_DATE,
-            TEXPIRE_DATE
+            AMT
         } = req.body;
 
         // Validate required fields
@@ -389,8 +386,8 @@ router.post('/', async (req, res) => {
                 0,                   // IN1_AMT
                 0,                   // OUT1_AMT
                 0,                   // UPD1_AMT
-                LOT_NO || null,
-                EXPIRE_DATE || null
+                '-',                 // LOTNO
+                '-'                  // EXPIRE_DATE
             ]
         );
 
@@ -408,9 +405,9 @@ router.post('/', async (req, res) => {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 DRUG_CODE,
-                LOT_NO || null,
-                EXPIRE_DATE || null,
-                TEXPIRE_DATE || null,
+                '-',                 // LOT_NO
+                '-',                 // EXPIRE_DATE
+                '-',                 // TEXPIRE_DATE
                 UNIT_CODE1 || null,
                 QTY || 0,
                 UNIT_PRICE || 0,
@@ -430,10 +427,7 @@ router.post('/', async (req, res) => {
                 UNIT_CODE1,
                 QTY,
                 UNIT_PRICE,
-                AMT,
-                LOT_NO,
-                EXPIRE_DATE,
-                TEXPIRE_DATE
+                AMT
             }
         });
     } catch (error) {
@@ -469,10 +463,7 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
             UNIT_CODE1,
             QTY,
             UNIT_PRICE,
-            AMT,
-            LOT_NO,
-            EXPIRE_DATE,
-            TEXPIRE_DATE
+            AMT
         } = req.body;
 
         // 1. อัปเดต STOCK_CARD
@@ -488,8 +479,8 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
                 UNIT_CODE1 || null,
                 QTY || 0,
                 UNIT_PRICE || 0,
-                LOT_NO || null,
-                EXPIRE_DATE || null,
+                '-',                // LOTNO
+                '-',                // EXPIRE_DATE
                 year,
                 month,
                 drugCode
@@ -523,9 +514,9 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 drugCode,
-                LOT_NO || null,
-                EXPIRE_DATE || null,
-                TEXPIRE_DATE || null,
+                '-',                // LOT_NO
+                '-',                // EXPIRE_DATE
+                '-',                // TEXPIRE_DATE
                 UNIT_CODE1 || null,
                 QTY || 0,
                 UNIT_PRICE || 0,
@@ -545,10 +536,7 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
                 UNIT_CODE1,
                 QTY,
                 UNIT_PRICE,
-                AMT,
-                LOT_NO,
-                EXPIRE_DATE,
-                TEXPIRE_DATE
+                AMT
             }
         });
     } catch (error) {

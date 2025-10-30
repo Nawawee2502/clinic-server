@@ -242,20 +242,25 @@ router.post('/', async (req, res) => {
         ]);
 
         for (const detail of details) {
+            // QTY = จำนวนปรับปรุง (คำนวณจาก QTY_BAL - QTY_PROGRAM)
+            const qtyAdjust = (parseFloat(detail.QTY_BAL) || 0) - (parseFloat(detail.QTY_PROGRAM) || 0);
+
             await connection.execute(`
                 INSERT INTO CHECK_STOCK_DT (
-                    REFNO, DRUG_CODE, QTY, UNIT_COST, UNIT_CODE1, AMT
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    REFNO, DRUG_CODE, QTY_PROGRAM, QTY_BAL, QTY, UNIT_COST, UNIT_CODE1, AMT
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `, [
                 REFNO,
                 detail.DRUG_CODE,
-                detail.QTY,
+                detail.QTY_PROGRAM || 0,  // จำนวนในโปรแกรม
+                detail.QTY_BAL || 0,      // จำนวนคงเหลือ (ผู้ใช้กรอก)
+                qtyAdjust,                // จำนวนปรับปรุง (คำนวณ)
                 detail.UNIT_COST,
                 detail.UNIT_CODE1,
                 detail.AMT
             ]);
 
-            // ** อัปเดต STOCK_CARD (UPD1, UPD1_AMT) - ใบเช็คสต๊อกเป็นการปรับปรุง **
+            // ** อัปเดต STOCK_CARD (UPD1, UPD1_AMT) - ใช้ QTY ที่คำนวณแล้ว **
             const [stockCheck] = await connection.execute(`
                 SELECT * FROM STOCK_CARD 
                 WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
@@ -268,7 +273,7 @@ router.post('/', async (req, res) => {
                         UPD1_AMT = UPD1_AMT + ?
                     WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
                 `, [
-                    detail.QTY,
+                    qtyAdjust,
                     detail.AMT,
                     year,
                     month,
@@ -291,13 +296,13 @@ router.post('/', async (req, res) => {
                     0,
                     0,
                     0,
-                    detail.QTY, // UPD1
+                    qtyAdjust, // UPD1
                     detail.UNIT_COST,
                     0,
                     0,
                     detail.AMT, // UPD1_AMT
-                    null, // LOTNO
-                    null  // EXPIRE_DATE
+                    '-',
+                    '-'
                 ]);
             }
         }
@@ -368,7 +373,7 @@ router.put('/:refno', async (req, res) => {
             SELECT * FROM CHECK_STOCK WHERE REFNO = ?
         `, [refno]);
 
-        // ลบข้อมูลใน STOCK_CARD ของรายการเดิม
+        // ลบข้อมูลใน STOCK_CARD ของรายการเดิม (ใช้ QTY ที่เป็นจำนวนปรับปรุง)
         for (const oldDetail of oldDetails) {
             await connection.execute(`
                 UPDATE STOCK_CARD 
@@ -376,7 +381,7 @@ router.put('/:refno', async (req, res) => {
                     UPD1_AMT = UPD1_AMT - ?
                 WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
             `, [
-                oldDetail.QTY,
+                oldDetail.QTY,  // ใช้ QTY ที่เป็นจำนวนปรับปรุง
                 oldDetail.AMT,
                 oldHeader[0].MYEAR,
                 oldHeader[0].MONTHH,
@@ -416,14 +421,19 @@ router.put('/:refno', async (req, res) => {
         await connection.execute('DELETE FROM CHECK_STOCK_DT WHERE REFNO = ?', [refno]);
 
         for (const detail of details) {
+            // QTY = จำนวนปรับปรุง (คำนวณจาก QTY_BAL - QTY_PROGRAM)
+            const qtyAdjust = (parseFloat(detail.QTY_BAL) || 0) - (parseFloat(detail.QTY_PROGRAM) || 0);
+
             await connection.execute(`
                 INSERT INTO CHECK_STOCK_DT (
-                    REFNO, DRUG_CODE, QTY, UNIT_COST, UNIT_CODE1, AMT
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    REFNO, DRUG_CODE, QTY_PROGRAM, QTY_BAL, QTY, UNIT_COST, UNIT_CODE1, AMT
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `, [
                 refno,
                 detail.DRUG_CODE,
-                detail.QTY,
+                detail.QTY_PROGRAM || 0,
+                detail.QTY_BAL || 0,
+                qtyAdjust,
                 detail.UNIT_COST,
                 detail.UNIT_CODE1,
                 detail.AMT
@@ -442,7 +452,7 @@ router.put('/:refno', async (req, res) => {
                         UPD1_AMT = UPD1_AMT + ?
                     WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
                 `, [
-                    detail.QTY,
+                    qtyAdjust,
                     detail.AMT,
                     MYEAR,
                     MONTHH,
@@ -465,13 +475,13 @@ router.put('/:refno', async (req, res) => {
                     0,
                     0,
                     0,
-                    detail.QTY,
+                    qtyAdjust,
                     detail.UNIT_COST,
                     0,
                     0,
                     detail.AMT,
-                    null,
-                    null
+                    '-',
+                    '-'
                 ]);
             }
         }
@@ -520,7 +530,7 @@ router.delete('/:refno', async (req, res) => {
         `, [refno]);
 
         if (oldHeader.length > 0) {
-            // ลบข้อมูลใน STOCK_CARD
+            // ลบข้อมูลใน STOCK_CARD (ใช้ QTY ที่เป็นจำนวนปรับปรุง)
             for (const oldDetail of oldDetails) {
                 await connection.execute(`
                     UPDATE STOCK_CARD 
@@ -528,7 +538,7 @@ router.delete('/:refno', async (req, res) => {
                         UPD1_AMT = UPD1_AMT - ?
                     WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?
                 `, [
-                    oldDetail.QTY,
+                    oldDetail.QTY,  // ใช้ QTY ที่เป็นจำนวนปรับปรุง
                     oldDetail.AMT,
                     oldHeader[0].MYEAR,
                     oldHeader[0].MONTHH,
