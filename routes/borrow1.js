@@ -264,13 +264,13 @@ router.post('/', async (req, res) => {
                 detail.DRUG_CODE,
                 detail.QTY,
                 detail.UNIT_COST,
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
+                detail.UNIT_CODE1 || detail.UNIT_CODE,
                 detail.AMT,
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
             ]);
 
-            // ** เพิ่มข้อมูลใน STOCK_CARD (INSERT ใหม่ทุกครั้ง ไม่ UPDATE) - ใบเบิกเป็นการออก **
+            // ** เพิ่มข้อมูลใน STOCK_CARD (INSERT ใหม่ทุกครั้ง) - ใบเบิกเป็นการออก **
             await connection.execute(`
                 INSERT INTO STOCK_CARD (
                     REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
@@ -283,35 +283,35 @@ router.post('/', async (req, res) => {
                 year,
                 month,
                 detail.DRUG_CODE,
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
+                detail.UNIT_CODE1 || detail.UNIT_CODE,
                 0, // BEG1
                 0, // IN1
-                detail.QTY, // OUT1
+                detail.QTY, // OUT1 - เบิกออก
                 0, // UPD1
                 detail.UNIT_COST,
                 0, // IN1_AMT
-                detail.AMT, // OUT1_AMT
+                detail.AMT, // OUT1_AMT - เบิกออก
                 0, // UPD1_AMT
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
             ]);
 
-            // ** เพิ่มข้อมูลใน BAL_DRUG (INSERT ใหม่ทุกครั้ง + คำนวณ AMT) **
+            // ** ✅ แก้ไข: ใบเบิก = ลดจำนวนใน BAL_DRUG (เหมือน return1) **
             // ดึงข้อมูลเดิมจาก BAL_DRUG
             const [existingBal] = await connection.execute(
-                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
-                [detail.DRUG_CODE]
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? ORDER BY QTY DESC LIMIT 1',
+                [detail.DRUG_CODE, detail.LOT_NO || '-']
             );
 
-            let newQty = -(parseFloat(detail.QTY) || 0); // ลบออก (เบิกสินค้า)
+            let newQty = -(parseFloat(detail.QTY) || 0); // ลบออก (เบิกสินค้า = ลดจำนวน)
             let newAmt = -(parseFloat(detail.AMT) || 0); // ลบออก
 
             // ถ้ามีข้อมูลเดิม ให้คำนวณลบออก (เบิกสินค้า = ลด)
             if (existingBal.length > 0) {
                 const oldQty = parseFloat(existingBal[0].QTY) || 0;
                 const oldAmt = parseFloat(existingBal[0].AMT) || 0;
-                newQty = oldQty - (parseFloat(detail.QTY) || 0);
-                newAmt = oldAmt - (parseFloat(detail.AMT) || 0);
+                newQty = oldQty - (parseFloat(detail.QTY) || 0); // ⭐ ลบออก
+                newAmt = oldAmt - (parseFloat(detail.AMT) || 0); // ⭐ ลบออก
             }
 
             // INSERT ใหม่เข้า BAL_DRUG
@@ -325,10 +325,10 @@ router.post('/', async (req, res) => {
                 detail.LOT_NO || '-',
                 detail.EXPIRE_DATE || '-',
                 detail.EXPIRE_DATE || '-',
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
-                newQty,
+                detail.UNIT_CODE1 || detail.UNIT_CODE,
+                newQty, // ⭐ ลดจำนวน
                 detail.UNIT_COST,
-                newAmt
+                newAmt  // ⭐ ลดมูลค่า
             ]);
         }
 
@@ -336,7 +336,7 @@ router.post('/', async (req, res) => {
 
         res.status(201).json({
             success: true,
-            message: 'สร้างใบเบิกสินค้าสำเร็จ และเพิ่มข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว',
+            message: 'สร้างใบเบิกสินค้าสำเร็จ และลดจำนวนใน BAL_DRUG แล้ว',
             data: {
                 REFNO,
                 TOTAL: total,
@@ -390,20 +390,20 @@ router.put('/:refno', async (req, res) => {
             });
         }
 
-        // ดึงรายการ DRUG_CODE เดิมก่อนลบ
+        // ดึงรายการ DRUG_CODE และ LOT_NO เดิมก่อนลบ
         const [oldDetails] = await connection.execute(
-            'SELECT DRUG_CODE FROM BORROW1_DT WHERE REFNO = ?',
+            'SELECT DRUG_CODE, LOT_NO FROM BORROW1_DT WHERE REFNO = ?',
             [refno]
         );
 
         // ลบข้อมูลใน STOCK_CARD ที่เกี่ยวข้องกับ REFNO นี้ก่อน
         await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
 
-        // ลบ BAL_DRUG ของ DRUG_CODE เดิม
+        // ลบ BAL_DRUG ของ DRUG_CODE และ LOT_NO เดิม
         for (const oldDetail of oldDetails) {
             await connection.execute(
-                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ? LIMIT 1',
-                [oldDetail.DRUG_CODE]
+                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [oldDetail.DRUG_CODE, oldDetail.LOT_NO || '-']
             );
         }
 
@@ -450,7 +450,7 @@ router.put('/:refno', async (req, res) => {
                 detail.DRUG_CODE,
                 detail.QTY,
                 detail.UNIT_COST,
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
+                detail.UNIT_CODE1 || detail.UNIT_CODE,
                 detail.AMT,
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
@@ -469,7 +469,7 @@ router.put('/:refno', async (req, res) => {
                 MYEAR,
                 MONTHH,
                 detail.DRUG_CODE,
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
+                detail.UNIT_CODE1 || detail.UNIT_CODE,
                 0,
                 0,
                 detail.QTY,
@@ -482,10 +482,10 @@ router.put('/:refno', async (req, res) => {
                 detail.EXPIRE_DATE
             ]);
 
-            // ** เพิ่มข้อมูลใน BAL_DRUG (INSERT ใหม่ทุกครั้ง + คำนวณ AMT) **
+            // ** ✅ แก้ไข: ใบเบิก = ลดจำนวนใน BAL_DRUG **
             const [existingBal] = await connection.execute(
-                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
-                [detail.DRUG_CODE]
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? ORDER BY QTY DESC LIMIT 1',
+                [detail.DRUG_CODE, detail.LOT_NO || '-']
             );
 
             let newQty = -(parseFloat(detail.QTY) || 0);
@@ -494,8 +494,8 @@ router.put('/:refno', async (req, res) => {
             if (existingBal.length > 0) {
                 const oldQty = parseFloat(existingBal[0].QTY) || 0;
                 const oldAmt = parseFloat(existingBal[0].AMT) || 0;
-                newQty = oldQty - (parseFloat(detail.QTY) || 0);
-                newAmt = oldAmt - (parseFloat(detail.AMT) || 0);
+                newQty = oldQty - (parseFloat(detail.QTY) || 0); // ⭐ ลบออก
+                newAmt = oldAmt - (parseFloat(detail.AMT) || 0); // ⭐ ลบออก
             }
 
             await connection.execute(`
@@ -508,7 +508,7 @@ router.put('/:refno', async (req, res) => {
                 detail.LOT_NO || '-',
                 detail.EXPIRE_DATE || '-',
                 detail.EXPIRE_DATE || '-',
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
+                detail.UNIT_CODE1 || detail.UNIT_CODE,
                 newQty,
                 detail.UNIT_COST,
                 newAmt
@@ -519,7 +519,7 @@ router.put('/:refno', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'แก้ไขใบเบิกสินค้าสำเร็จ และเพิ่มข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว',
+            message: 'แก้ไขใบเบิกสินค้าสำเร็จ และลดจำนวนใน BAL_DRUG แล้ว',
             data: {
                 REFNO: refno,
                 TOTAL: total,
@@ -549,9 +549,9 @@ router.delete('/:refno', async (req, res) => {
 
         const { refno } = req.params;
 
-        // ดึงรายการ DRUG_CODE ก่อนลบ
+        // ดึงรายการ DRUG_CODE และ LOT_NO ก่อนลบ
         const [details] = await connection.execute(
-            'SELECT DRUG_CODE FROM BORROW1_DT WHERE REFNO = ?',
+            'SELECT DRUG_CODE, LOT_NO FROM BORROW1_DT WHERE REFNO = ?',
             [refno]
         );
 
@@ -561,8 +561,8 @@ router.delete('/:refno', async (req, res) => {
         // ลบข้อมูลใน BAL_DRUG
         for (const detail of details) {
             await connection.execute(
-                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ? LIMIT 1',
-                [detail.DRUG_CODE]
+                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [detail.DRUG_CODE, detail.LOT_NO || '-']
             );
         }
 
