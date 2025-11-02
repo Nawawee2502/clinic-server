@@ -264,7 +264,7 @@ router.post('/', async (req, res) => {
                 detail.DRUG_CODE,
                 detail.QTY,
                 detail.UNIT_COST,
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 detail.AMT,
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
@@ -283,7 +283,7 @@ router.post('/', async (req, res) => {
                 year,
                 month,
                 detail.DRUG_CODE,
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 0, // BEG1
                 0, // IN1
                 detail.QTY, // OUT1
@@ -325,7 +325,7 @@ router.post('/', async (req, res) => {
                 detail.LOT_NO || '-',
                 detail.EXPIRE_DATE || '-',
                 detail.EXPIRE_DATE || '-',
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 newQty,
                 detail.UNIT_COST,
                 newAmt
@@ -450,7 +450,7 @@ router.put('/:refno', async (req, res) => {
                 detail.DRUG_CODE,
                 detail.QTY,
                 detail.UNIT_COST,
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 detail.AMT,
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
@@ -469,7 +469,7 @@ router.put('/:refno', async (req, res) => {
                 MYEAR,
                 MONTHH,
                 detail.DRUG_CODE,
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 0,
                 0,
                 detail.QTY,
@@ -508,7 +508,7 @@ router.put('/:refno', async (req, res) => {
                 detail.LOT_NO || '-',
                 detail.EXPIRE_DATE || '-',
                 detail.EXPIRE_DATE || '-',
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 newQty,
                 detail.UNIT_COST,
                 newAmt

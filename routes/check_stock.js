@@ -256,7 +256,7 @@ router.post('/', async (req, res) => {
                 detail.QTY_BAL || 0,      // จำนวนคงเหลือ (ผู้ใช้กรอก)
                 qtyAdjust,                // จำนวนปรับปรุง (คำนวณ)
                 detail.UNIT_COST,
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 detail.AMT
             ]);
 
@@ -273,7 +273,7 @@ router.post('/', async (req, res) => {
                 year,
                 month,
                 detail.DRUG_CODE,
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 0,
                 0,
                 0,
@@ -315,7 +315,7 @@ router.post('/', async (req, res) => {
                 '-',
                 '-',
                 '-',
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 newQty,
                 detail.UNIT_COST,
                 newAmt
@@ -442,7 +442,7 @@ router.put('/:refno', async (req, res) => {
                 detail.QTY_BAL || 0,
                 qtyAdjust,
                 detail.UNIT_COST,
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 detail.AMT
             ]);
 
@@ -459,7 +459,7 @@ router.put('/:refno', async (req, res) => {
                 MYEAR,
                 MONTHH,
                 detail.DRUG_CODE,
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 0,
                 0,
                 0,
@@ -498,7 +498,7 @@ router.put('/:refno', async (req, res) => {
                 '-',
                 '-',
                 '-',
-                detail.UNIT_CODE1,
+                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
                 newQty,
                 detail.UNIT_COST,
                 newAmt
