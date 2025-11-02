@@ -349,13 +349,48 @@ router.post('/', async (req, res) => {
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
             ]);
+
+            // ** เพิ่มข้อมูลใน BAL_DRUG (INSERT ใหม่ทุกครั้ง + คำนวณ AMT) **
+            // ดึงข้อมูลเดิมจาก BAL_DRUG
+            const [existingBal] = await connection.execute(
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
+                [detail.DRUG_CODE]
+            );
+
+            let newQty = parseFloat(detail.QTY) || 0;
+            let newAmt = parseFloat(detail.AMT) || 0;
+
+            // ถ้ามีข้อมูลเดิม ให้คำนวณรวมกัน (รับสินค้า = เพิ่ม)
+            if (existingBal.length > 0) {
+                const oldQty = parseFloat(existingBal[0].QTY) || 0;
+                const oldAmt = parseFloat(existingBal[0].AMT) || 0;
+                newQty = oldQty + newQty;
+                newAmt = oldAmt + newAmt;
+            }
+
+            // INSERT ใหม่เข้า BAL_DRUG
+            await connection.execute(`
+                INSERT INTO BAL_DRUG (
+                    DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
+                    UNIT_CODE1, QTY, UNIT_PRICE, AMT
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                detail.DRUG_CODE,
+                detail.LOT_NO || '-',
+                detail.EXPIRE_DATE || '-',
+                detail.EXPIRE_DATE || '-',
+                detail.UNIT_CODE1,
+                newQty,
+                detail.UNIT_COST,
+                newAmt
+            ]);
         }
 
         await connection.commit();
 
         res.status(201).json({
             success: true,
-            message: 'สร้างใบรับสินค้าสำเร็จ และเพิ่มข้อมูลใน STOCK_CARD แล้ว',
+            message: 'สร้างใบรับสินค้าสำเร็จ และเพิ่มข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว',
             data: {
                 REFNO,
                 TOTAL: total,
@@ -415,10 +450,21 @@ router.put('/:refno', async (req, res) => {
             });
         }
 
-        // ลบข้อมูลใน STOCK_CARD ที่เกี่ยวข้องกับ REFNO นี้ก่อน
-        await connection.execute(`
-            DELETE FROM STOCK_CARD WHERE REFNO = ?
-        `, [refno]);
+        // ลบข้อมูลใน STOCK_CARD และ BAL_DRUG ที่เกี่ยวข้องกับ REFNO นี้ก่อน
+        const [oldDetails] = await connection.execute(
+            'SELECT DRUG_CODE FROM RECEIPT1_DT WHERE REFNO = ?',
+            [refno]
+        );
+
+        await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
+
+        // ลบ BAL_DRUG ของ DRUG_CODE เดิม
+        for (const oldDetail of oldDetails) {
+            await connection.execute(
+                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ? LIMIT 1',
+                [oldDetail.DRUG_CODE]
+            );
+        }
 
         // คำนวณยอดเงินตาม TYPE_VAT
         const detailTotal = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
@@ -523,13 +569,45 @@ router.put('/:refno', async (req, res) => {
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
             ]);
+
+            // ** เพิ่มข้อมูลใน BAL_DRUG (INSERT ใหม่ทุกครั้ง + คำนวณ AMT) **
+            const [existingBal] = await connection.execute(
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
+                [detail.DRUG_CODE]
+            );
+
+            let newQty = parseFloat(detail.QTY) || 0;
+            let newAmt = parseFloat(detail.AMT) || 0;
+
+            if (existingBal.length > 0) {
+                const oldQty = parseFloat(existingBal[0].QTY) || 0;
+                const oldAmt = parseFloat(existingBal[0].AMT) || 0;
+                newQty = oldQty + newQty;
+                newAmt = oldAmt + newAmt;
+            }
+
+            await connection.execute(`
+                INSERT INTO BAL_DRUG (
+                    DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
+                    UNIT_CODE1, QTY, UNIT_PRICE, AMT
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                detail.DRUG_CODE,
+                detail.LOT_NO || '-',
+                detail.EXPIRE_DATE || '-',
+                detail.EXPIRE_DATE || '-',
+                detail.UNIT_CODE1,
+                newQty,
+                detail.UNIT_COST,
+                newAmt
+            ]);
         }
 
         await connection.commit();
 
         res.json({
             success: true,
-            message: 'แก้ไขใบรับสินค้าสำเร็จ และเพิ่มข้อมูลใน STOCK_CARD แล้ว',
+            message: 'แก้ไขใบรับสินค้าสำเร็จ และเพิ่มข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว',
             data: {
                 REFNO: refno,
                 TOTAL: total,
@@ -560,10 +638,22 @@ router.delete('/:refno', async (req, res) => {
 
         const { refno } = req.params;
 
+        // ดึงรายการ DRUG_CODE ก่อนลบ
+        const [details] = await connection.execute(
+            'SELECT DRUG_CODE FROM RECEIPT1_DT WHERE REFNO = ?',
+            [refno]
+        );
+
         // ลบข้อมูลใน STOCK_CARD ที่เกี่ยวข้องกับ REFNO นี้
-        await connection.execute(`
-            DELETE FROM STOCK_CARD WHERE REFNO = ?
-        `, [refno]);
+        await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
+
+        // ลบข้อมูลใน BAL_DRUG
+        for (const detail of details) {
+            await connection.execute(
+                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ? LIMIT 1',
+                [detail.DRUG_CODE]
+            );
+        }
 
         await connection.execute('DELETE FROM RECEIPT1_DT WHERE REFNO = ?', [refno]);
 
@@ -581,7 +671,7 @@ router.delete('/:refno', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'ลบใบรับสินค้าสำเร็จ และลบข้อมูลใน STOCK_CARD แล้ว'
+            message: 'ลบใบรับสินค้าสำเร็จ และลบข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว'
         });
     } catch (error) {
         await connection.rollback();
@@ -623,6 +713,31 @@ router.get('/period/:year/:month', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูล',
+            error: error.message
+        });
+    }
+});
+
+// Check if REFNO exists
+router.get('/check/:refno', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { refno } = req.params;
+
+        const [rows] = await db.execute(`
+            SELECT REFNO FROM RECEIPT1 WHERE REFNO = ?
+        `, [refno]);
+
+        res.json({
+            success: true,
+            exists: rows.length > 0,
+            refno: refno
+        });
+    } catch (error) {
+        console.error('Error checking REFNO:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการตรวจสอบเลขที่',
             error: error.message
         });
     }

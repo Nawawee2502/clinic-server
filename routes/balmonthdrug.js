@@ -309,8 +309,7 @@ router.get('/check/:year/:month/:drugCode', async (req, res) => {
     }
 });
 
-// POST create new balance record (เพิ่มทั้ง 3 ตาราง)
-// POST create new balance record (เพิ่มทั้ง 3 ตาราง)
+// POST create new balance record (เพิ่มทั้ง 3 ตาราง - INSERT เสมอ + คำนวณ AMT)
 router.post('/', async (req, res) => {
     const pool = require('../config/db');
     const connection = await pool.getConnection();
@@ -428,47 +427,62 @@ router.post('/', async (req, res) => {
             console.log('✅ Inserted into STOCK_CARD with REFNO = BEG');
         }
 
-        // 3. เพิ่มหรืออัปเดต BAL_DRUG
-        console.log('📝 Managing BAL_DRUG...');
-        const [balCheck] = await connection.execute(
-            'SELECT * FROM BAL_DRUG WHERE DRUG_CODE = ?',
+        // 3. ** เพิ่มเข้า BAL_DRUG (INSERT ใหม่เสมอ + คำนวณ AMT จากข้อมูลเดิม) **
+        console.log('📝 Managing BAL_DRUG (always INSERT with calculated AMT)...');
+
+        // ดึงข้อมูล DRUG_CODE เดิมจาก BAL_DRUG เพื่อนำมาคำนวณ
+        const [existingBal] = await connection.execute(
+            'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
             [DRUG_CODE]
         );
 
-        if (balCheck.length > 0) {
-            // ถ้ามีอยู่แล้ว ให้อัปเดต (สะสมจำนวน)
-            await connection.execute(
-                `UPDATE BAL_DRUG SET 
-                    UNIT_CODE1 = ?,
-                    QTY = QTY + ?,
-                    UNIT_PRICE = ?,
-                    AMT = AMT + ?
-                WHERE DRUG_CODE = ?`,
-                [UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0, DRUG_CODE]
-            );
-            console.log('✅ Updated BAL_DRUG');
-        } else {
-            // ถ้ายังไม่มี ให้สร้างใหม่
-            await connection.execute(
-                `INSERT INTO BAL_DRUG (
-                    DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
-                    UNIT_CODE1, QTY, UNIT_PRICE, AMT
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    DRUG_CODE, '-', '-', '-',
-                    UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0
-                ]
-            );
-            console.log('✅ Inserted into BAL_DRUG');
+        let newQty = QTY || 0;
+        let newAmt = AMT || 0;
+
+        // ถ้ามีข้อมูลเดิม ให้คำนวณรวมกัน
+        if (existingBal.length > 0) {
+            const oldQty = parseFloat(existingBal[0].QTY) || 0;
+            const oldAmt = parseFloat(existingBal[0].AMT) || 0;
+
+            newQty = oldQty + (parseFloat(QTY) || 0);
+            newAmt = oldAmt + (parseFloat(AMT) || 0);
+
+            console.log(`📊 Calculated: Old QTY=${oldQty}, Old AMT=${oldAmt} → New QTY=${newQty}, New AMT=${newAmt}`);
         }
+
+        // INSERT ใหม่เข้า BAL_DRUG (ไม่ UPDATE)
+        await connection.execute(
+            `INSERT INTO BAL_DRUG (
+                DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
+                UNIT_CODE1, QTY, UNIT_PRICE, AMT
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                DRUG_CODE, '-', '-', '-',
+                UNIT_CODE1 || null,
+                newQty,  // ✅ จำนวนที่คำนวณแล้ว
+                UNIT_PRICE || 0,
+                newAmt   // ✅ มูลค่าที่คำนวณแล้ว
+            ]
+        );
+        console.log('✅ Inserted new record into BAL_DRUG with calculated AMT');
 
         await connection.commit();
         console.log('✅ Transaction committed successfully');
 
         res.status(201).json({
             success: true,
-            message: 'เพิ่มข้อมูลยอดยกมาสำเร็จในทั้ง 3 ตาราง',
-            data: { MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, QTY, UNIT_PRICE, AMT }
+            message: 'เพิ่มข้อมูลยอดยกมาสำเร็จในทั้ง 3 ตาราง (BAL_DRUG คำนวณ AMT แล้ว)',
+            data: {
+                MYEAR,
+                MONTHH,
+                DRUG_CODE,
+                UNIT_CODE1,
+                QTY,
+                UNIT_PRICE,
+                AMT,
+                BAL_DRUG_QTY: newQty,
+                BAL_DRUG_AMT: newAmt
+            }
         });
     } catch (error) {
         await connection.rollback();
@@ -488,7 +502,6 @@ router.post('/', async (req, res) => {
     }
 });
 
-// PUT update balance record (อัปเดตทั้ง 3 ตาราง)
 // PUT update balance record (อัปเดตทั้ง 3 ตาราง)
 router.put('/:year/:month/:drugCode', async (req, res) => {
     const pool = require('../config/db');
@@ -533,31 +546,21 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
         );
         console.log('✅ Updated STOCK_CARD with REFNO = BEG');
 
-        // 3. อัปเดต BAL_DRUG
-        const [balCheck] = await connection.execute(
-            'SELECT * FROM BAL_DRUG WHERE DRUG_CODE = ?',
-            [drugCode]
-        );
+        // 3. ** ลบ BAL_DRUG เดิมแล้ว INSERT ใหม่ (เพื่อให้คำนวณ AMT ใหม่) **
+        console.log('📝 Re-inserting BAL_DRUG with new calculated AMT...');
 
-        if (balCheck.length > 0) {
-            await connection.execute(
-                `UPDATE BAL_DRUG SET 
-                    UNIT_CODE1 = ?, 
-                    QTY = ?, 
-                    UNIT_PRICE = ?, 
-                    AMT = ?
-                WHERE DRUG_CODE = ?`,
-                [UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0, drugCode]
-            );
-        } else {
-            await connection.execute(
-                `INSERT INTO BAL_DRUG (
-                    DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE, 
-                    UNIT_CODE1, QTY, UNIT_PRICE, AMT
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [drugCode, '-', '-', '-', UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0]
-            );
-        }
+        // ลบข้อมูลเดิม
+        await connection.execute('DELETE FROM BAL_DRUG WHERE DRUG_CODE = ?', [drugCode]);
+
+        // INSERT ใหม่
+        await connection.execute(
+            `INSERT INTO BAL_DRUG (
+                DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE, 
+                UNIT_CODE1, QTY, UNIT_PRICE, AMT
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [drugCode, '-', '-', '-', UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0]
+        );
+        console.log('✅ Re-inserted into BAL_DRUG');
 
         await connection.commit();
         console.log('✅ Balance record updated successfully in 3 tables');
@@ -612,7 +615,7 @@ router.delete('/:year/:month/:drugCode', async (req, res) => {
             [year, month, drugCode]
         );
 
-        // 3. ลบจาก BAL_DRUG
+        // 3. ** ลบ BAL_DRUG (ลบเฉพาะ record ที่เกี่ยวข้อง) **
         await connection.execute('DELETE FROM BAL_DRUG WHERE DRUG_CODE = ?', [drugCode]);
 
         await connection.commit();
