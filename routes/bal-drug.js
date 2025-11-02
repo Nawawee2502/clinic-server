@@ -1,6 +1,49 @@
 const express = require('express');
 const router = express.Router();
 
+// GET statistics (ต้องอยู่ก่อน /:drugCode)
+router.get('/stats/summary', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+
+        const [stats] = await db.execute(`
+            SELECT 
+                COUNT(*) as totalItems,
+                SUM(QTY) as totalQty,
+                COUNT(DISTINCT DRUG_CODE) as uniqueDrugs
+            FROM BAL_DRUG
+        `);
+
+        const [lowStock] = await db.execute(`
+            SELECT COUNT(*) as count
+            FROM BAL_DRUG
+            WHERE QTY > 0 AND QTY <= 10
+        `);
+
+        const [outOfStock] = await db.execute(`
+            SELECT COUNT(*) as count
+            FROM BAL_DRUG
+            WHERE QTY <= 0
+        `);
+
+        res.json({
+            success: true,
+            data: {
+                ...stats[0],
+                lowStock: lowStock[0].count,
+                outOfStock: outOfStock[0].count
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching stats:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการดึงสถิติ',
+            error: error.message
+        });
+    }
+});
+
 // GET drug lots by DRUG_CODE (ต้องอยู่ก่อน /:drugCode เพื่อไม่ให้ conflict)
 router.get('/:drugCode/lots', async (req, res) => {
     try {
@@ -11,7 +54,7 @@ router.get('/:drugCode/lots', async (req, res) => {
 
         const query = `
             SELECT DISTINCT LOT_NO, EXPIRE_DATE 
-            FROM bal_drug 
+            FROM BAL_DRUG 
             WHERE DRUG_CODE = ? 
             AND QTY > 0
             AND LOT_NO IS NOT NULL
@@ -47,7 +90,7 @@ router.get('/:drugCode', async (req, res) => {
 
         const [rows] = await db.execute(`
             SELECT DRUG_CODE, QTY, UNIT_CODE1
-            FROM bal_drug
+            FROM BAL_DRUG
             WHERE DRUG_CODE = ?
         `, [drugCode]);
 
@@ -81,12 +124,12 @@ router.get('/', async (req, res) => {
 
         const [rows] = await db.execute(`
             SELECT *
-            FROM bal_drug
+            FROM BAL_DRUG
             ORDER BY DRUG_CODE
             LIMIT ? OFFSET ?
         `, [parseInt(limit), parseInt(offset)]);
 
-        const [countResult] = await db.execute('SELECT COUNT(*) as total FROM bal_drug');
+        const [countResult] = await db.execute('SELECT COUNT(*) as total FROM BAL_DRUG');
 
         res.json({
             success: true,
@@ -124,7 +167,7 @@ router.post('/', async (req, res) => {
 
         // Check if already exists
         const [existing] = await db.execute(
-            'SELECT * FROM bal_drug WHERE DRUG_CODE = ? AND LOT_NO = ?',
+            'SELECT * FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ?',
             [DRUG_CODE, LOT_NO || '']
         );
 
@@ -136,7 +179,7 @@ router.post('/', async (req, res) => {
         }
 
         const query = `
-            INSERT INTO bal_drug (DRUG_CODE, QTY, UNIT_CODE1, LOT_NO, EXPIRE_DATE)
+            INSERT INTO BAL_DRUG (DRUG_CODE, QTY, UNIT_CODE1, LOT_NO, EXPIRE_DATE)
             VALUES (?, ?, ?, ?, ?)
         `;
 
@@ -171,7 +214,7 @@ router.put('/:drugCode', async (req, res) => {
 
         // Check if exists
         const [existing] = await db.execute(
-            'SELECT * FROM bal_drug WHERE DRUG_CODE = ?',
+            'SELECT * FROM BAL_DRUG WHERE DRUG_CODE = ?',
             [drugCode]
         );
 
@@ -183,7 +226,7 @@ router.put('/:drugCode', async (req, res) => {
         }
 
         const query = `
-            UPDATE bal_drug 
+            UPDATE BAL_DRUG 
             SET QTY = ?,
                 UNIT_CODE1 = ?,
                 LOT_NO = ?,
@@ -221,7 +264,7 @@ router.delete('/:drugCode', async (req, res) => {
 
         // Check if exists
         const [existing] = await db.execute(
-            'SELECT * FROM bal_drug WHERE DRUG_CODE = ?',
+            'SELECT * FROM BAL_DRUG WHERE DRUG_CODE = ?',
             [drugCode]
         );
 
@@ -232,7 +275,7 @@ router.delete('/:drugCode', async (req, res) => {
             });
         }
 
-        await db.execute('DELETE FROM bal_drug WHERE DRUG_CODE = ?', [drugCode]);
+        await db.execute('DELETE FROM BAL_DRUG WHERE DRUG_CODE = ?', [drugCode]);
 
         res.json({
             success: true,
@@ -243,49 +286,6 @@ router.delete('/:drugCode', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการลบข้อมูล',
-            error: error.message
-        });
-    }
-});
-
-// GET statistics
-router.get('/stats/summary', async (req, res) => {
-    try {
-        const db = await require('../config/db');
-
-        const [stats] = await db.execute(`
-            SELECT 
-                COUNT(*) as totalItems,
-                SUM(QTY) as totalQty,
-                COUNT(DISTINCT DRUG_CODE) as uniqueDrugs
-            FROM bal_drug
-        `);
-
-        const [lowStock] = await db.execute(`
-            SELECT COUNT(*) as count
-            FROM bal_drug
-            WHERE QTY > 0 AND QTY <= 10
-        `);
-
-        const [outOfStock] = await db.execute(`
-            SELECT COUNT(*) as count
-            FROM bal_drug
-            WHERE QTY <= 0
-        `);
-
-        res.json({
-            success: true,
-            data: {
-                ...stats[0],
-                lowStock: lowStock[0].count,
-                outOfStock: outOfStock[0].count
-            }
-        });
-    } catch (error) {
-        console.error('Error fetching stats:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการดึงสถิติ',
             error: error.message
         });
     }
