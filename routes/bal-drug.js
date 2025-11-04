@@ -53,19 +53,35 @@ router.get('/:drugCode/lots', async (req, res) => {
         console.log('🔍 Fetching lots for drug:', drugCode);
 
         const query = `
-            SELECT DISTINCT LOT_NO, EXPIRE_DATE 
+            SELECT 
+                LOT_NO, 
+                EXPIRE_DATE,
+                QTY,
+                UNIT_CODE1,
+                UNIT_PRICE,
+                AMT
             FROM BAL_DRUG 
             WHERE DRUG_CODE = ? 
             AND QTY > 0
             AND LOT_NO IS NOT NULL
             AND LOT_NO != ''
+            AND LOT_NO != '-'
             AND EXPIRE_DATE IS NOT NULL
+            AND EXPIRE_DATE != '-'
             ORDER BY EXPIRE_DATE ASC
         `;
 
         const [rows] = await db.execute(query, [drugCode]);
 
         console.log('✅ Found lots:', rows.length);
+        if (rows.length > 0) {
+            console.log('📦 First lot sample:', {
+                LOT_NO: rows[0].LOT_NO,
+                QTY: rows[0].QTY,
+                EXPIRE_DATE: rows[0].EXPIRE_DATE,
+                UNIT_CODE1: rows[0].UNIT_CODE1
+            });
+        }
 
         res.json({
             success: true,
