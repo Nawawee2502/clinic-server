@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-// GET all borrow1 records with details (แก้ไข: เพิ่ม JOIN กับ EMPLOYEE1)
+// GET all borrow1 records with details
 router.get('/', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -82,7 +82,7 @@ router.get('/stats/summary', async (req, res) => {
     }
 });
 
-// GET borrow1 by REFNO (with details) - แก้ไข: เพิ่ม JOIN กับ EMPLOYEE1
+// GET borrow1 by REFNO (with details)
 router.get('/:refno', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -128,7 +128,7 @@ router.get('/:refno', async (req, res) => {
     }
 });
 
-// Search borrow1 - แก้ไข: เพิ่ม JOIN กับ EMPLOYEE1 และค้นหาชื่อพนักงานด้วย
+// Search borrow1
 router.get('/search/:term', async (req, res) => {
     try {
         const db = await require('../config/db');
@@ -255,6 +255,33 @@ router.post('/', async (req, res) => {
         ]);
 
         for (const detail of details) {
+            let lotNo = detail.LOT_NO || '-';
+
+            // ** ✅ เช็คจำนวนคงเหลือใน BAL_DRUG ก่อนเบิก **
+            const [balCheck] = await connection.execute(
+                'SELECT QTY FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [detail.DRUG_CODE, lotNo]
+            );
+
+            if (balCheck.length === 0) {
+                await connection.rollback();
+                return res.status(400).json({
+                    success: false,
+                    message: `ไม่พบยอดคงเหลือของยา ${detail.DRUG_CODE} LOT ${lotNo}`
+                });
+            }
+
+            const currentQty = parseFloat(balCheck[0].QTY) || 0;
+            const borrowQty = parseFloat(detail.QTY) || 0;
+
+            if (borrowQty > currentQty) {
+                await connection.rollback();
+                return res.status(400).json({
+                    success: false,
+                    message: `ยา ${detail.DRUG_CODE} LOT ${lotNo} คงเหลือ ${currentQty} ไม่สามารถเบิก ${borrowQty} ได้`
+                });
+            }
+
             await connection.execute(`
                 INSERT INTO BORROW1_DT (
                     REFNO, DRUG_CODE, QTY, UNIT_COST, UNIT_CODE1, AMT, LOT_NO, EXPIRE_DATE
@@ -270,7 +297,6 @@ router.post('/', async (req, res) => {
                 detail.EXPIRE_DATE
             ]);
 
-            // ** เพิ่มข้อมูลใน STOCK_CARD (INSERT ใหม่ทุกครั้ง) - ใบเบิกเป็นการออก **
             await connection.execute(`
                 INSERT INTO STOCK_CARD (
                     REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
@@ -284,52 +310,53 @@ router.post('/', async (req, res) => {
                 month,
                 detail.DRUG_CODE,
                 detail.UNIT_CODE1 || detail.UNIT_CODE,
-                0, // BEG1
-                0, // IN1
+                0,
+                0,
                 detail.QTY, // OUT1 - เบิกออก
-                0, // UPD1
+                0,
                 detail.UNIT_COST,
-                0, // IN1_AMT
+                0,
                 detail.AMT, // OUT1_AMT - เบิกออก
-                0, // UPD1_AMT
+                0,
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
             ]);
 
-            // ** ✅ แก้ไข: ใบเบิก = ลดจำนวนใน BAL_DRUG (เหมือน return1) **
-            // ดึงข้อมูลเดิมจาก BAL_DRUG
+            // ** ✅ UPDATE BAL_DRUG - ใบเบิก ต้องลดจำนวน **
+            lotNo = detail.LOT_NO || '-';
+
             const [existingBal] = await connection.execute(
-                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? ORDER BY QTY DESC LIMIT 1',
-                [detail.DRUG_CODE, detail.LOT_NO || '-']
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [detail.DRUG_CODE, lotNo]
             );
 
-            let newQty = -(parseFloat(detail.QTY) || 0); // ลบออก (เบิกสินค้า = ลดจำนวน)
-            let newAmt = -(parseFloat(detail.AMT) || 0); // ลบออก
-
-            // ถ้ามีข้อมูลเดิม ให้คำนวณลบออก (เบิกสินค้า = ลด)
             if (existingBal.length > 0) {
+                // มีข้อมูลอยู่แล้ว → UPDATE (ลดจำนวน)
                 const oldQty = parseFloat(existingBal[0].QTY) || 0;
                 const oldAmt = parseFloat(existingBal[0].AMT) || 0;
-                newQty = oldQty - (parseFloat(detail.QTY) || 0); // ⭐ ลบออก
-                newAmt = oldAmt - (parseFloat(detail.AMT) || 0); // ⭐ ลบออก
-            }
+                const newQty = oldQty - (parseFloat(detail.QTY) || 0); // ✅ ลดจำนวน
+                const newAmt = oldAmt - (parseFloat(detail.AMT) || 0);
 
-            // INSERT ใหม่เข้า BAL_DRUG
-            await connection.execute(`
-                INSERT INTO BAL_DRUG (
-                    DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
-                    UNIT_CODE1, QTY, UNIT_PRICE, AMT
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-                detail.DRUG_CODE,
-                detail.LOT_NO || '-',
-                detail.EXPIRE_DATE || '-',
-                detail.EXPIRE_DATE || '-',
-                detail.UNIT_CODE1 || detail.UNIT_CODE,
-                newQty, // ⭐ ลดจำนวน
-                detail.UNIT_COST,
-                newAmt  // ⭐ ลดมูลค่า
-            ]);
+                await connection.execute(`
+                    UPDATE BAL_DRUG SET 
+                        QTY = ?, 
+                        AMT = ?,
+                        UNIT_PRICE = ?,
+                        UNIT_CODE1 = ?,
+                        EXPIRE_DATE = ?,
+                        TEXPIRE_DATE = ?
+                    WHERE DRUG_CODE = ? AND LOT_NO = ?
+                `, [
+                    newQty,
+                    newAmt,
+                    detail.UNIT_COST,
+                    detail.UNIT_CODE1 || detail.UNIT_CODE,
+                    detail.EXPIRE_DATE || '-',
+                    detail.EXPIRE_DATE || '-',
+                    detail.DRUG_CODE,
+                    lotNo
+                ]);
+            }
         }
 
         await connection.commit();
@@ -390,22 +417,34 @@ router.put('/:refno', async (req, res) => {
             });
         }
 
-        // ดึงรายการ DRUG_CODE และ LOT_NO เดิมก่อนลบ
+        // ดึงรายการเดิมเพื่อคืนค่าใน BAL_DRUG ก่อน
         const [oldDetails] = await connection.execute(
-            'SELECT DRUG_CODE, LOT_NO FROM BORROW1_DT WHERE REFNO = ?',
+            'SELECT DRUG_CODE, LOT_NO, QTY, AMT FROM BORROW1_DT WHERE REFNO = ?',
             [refno]
         );
 
-        // ลบข้อมูลใน STOCK_CARD ที่เกี่ยวข้องกับ REFNO นี้ก่อน
-        await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
-
-        // ลบ BAL_DRUG ของ DRUG_CODE และ LOT_NO เดิม
+        // คืนค่าใน BAL_DRUG (เพิ่มกลับเข้าไป)
         for (const oldDetail of oldDetails) {
-            await connection.execute(
-                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
-                [oldDetail.DRUG_CODE, oldDetail.LOT_NO || '-']
+            let lotNo = oldDetail.LOT_NO || '-';
+            const [existingBal] = await connection.execute(
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [oldDetail.DRUG_CODE, lotNo]
             );
+
+            if (existingBal.length > 0) {
+                const oldQty = parseFloat(existingBal[0].QTY) || 0;
+                const oldAmt = parseFloat(existingBal[0].AMT) || 0;
+                const newQty = oldQty + (parseFloat(oldDetail.QTY) || 0); // เพิ่มกลับ
+                const newAmt = oldAmt + (parseFloat(oldDetail.AMT) || 0);
+
+                await connection.execute(
+                    'UPDATE BAL_DRUG SET QTY = ?, AMT = ? WHERE DRUG_CODE = ? AND LOT_NO = ?',
+                    [newQty, newAmt, oldDetail.DRUG_CODE, lotNo]
+                );
+            }
         }
+
+        await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
 
         const total = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
 
@@ -441,6 +480,33 @@ router.put('/:refno', async (req, res) => {
         await connection.execute('DELETE FROM BORROW1_DT WHERE REFNO = ?', [refno]);
 
         for (const detail of details) {
+            let lotNo = detail.LOT_NO || '-';
+
+            // ** ✅ เช็คจำนวนคงเหลือใน BAL_DRUG ก่อนเบิก **
+            const [balCheck] = await connection.execute(
+                'SELECT QTY FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [detail.DRUG_CODE, lotNo]
+            );
+
+            if (balCheck.length === 0) {
+                await connection.rollback();
+                return res.status(400).json({
+                    success: false,
+                    message: `ไม่พบยอดคงเหลือของยา ${detail.DRUG_CODE} LOT ${lotNo}`
+                });
+            }
+
+            const currentQty = parseFloat(balCheck[0].QTY) || 0;
+            const borrowQty = parseFloat(detail.QTY) || 0;
+
+            if (borrowQty > currentQty) {
+                await connection.rollback();
+                return res.status(400).json({
+                    success: false,
+                    message: `ยา ${detail.DRUG_CODE} LOT ${lotNo} คงเหลือ ${currentQty} ไม่สามารถเบิก ${borrowQty} ได้`
+                });
+            }
+
             await connection.execute(`
                 INSERT INTO BORROW1_DT (
                     REFNO, DRUG_CODE, QTY, UNIT_COST, UNIT_CODE1, AMT, LOT_NO, EXPIRE_DATE
@@ -456,7 +522,6 @@ router.put('/:refno', async (req, res) => {
                 detail.EXPIRE_DATE
             ]);
 
-            // ** เพิ่มข้อมูลใน STOCK_CARD (INSERT ใหม่ทุกครั้ง) **
             await connection.execute(`
                 INSERT INTO STOCK_CARD (
                     REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
@@ -482,37 +547,39 @@ router.put('/:refno', async (req, res) => {
                 detail.EXPIRE_DATE
             ]);
 
-            // ** ✅ แก้ไข: ใบเบิก = ลดจำนวนใน BAL_DRUG **
+            // ** ✅ UPDATE BAL_DRUG - ลดจำนวน **
+            lotNo = detail.LOT_NO || '-';
             const [existingBal] = await connection.execute(
-                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? ORDER BY QTY DESC LIMIT 1',
-                [detail.DRUG_CODE, detail.LOT_NO || '-']
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [detail.DRUG_CODE, lotNo]
             );
-
-            let newQty = -(parseFloat(detail.QTY) || 0);
-            let newAmt = -(parseFloat(detail.AMT) || 0);
 
             if (existingBal.length > 0) {
                 const oldQty = parseFloat(existingBal[0].QTY) || 0;
                 const oldAmt = parseFloat(existingBal[0].AMT) || 0;
-                newQty = oldQty - (parseFloat(detail.QTY) || 0); // ⭐ ลบออก
-                newAmt = oldAmt - (parseFloat(detail.AMT) || 0); // ⭐ ลบออก
-            }
+                const newQty = oldQty - (parseFloat(detail.QTY) || 0); // ✅ ลดจำนวน
+                const newAmt = oldAmt - (parseFloat(detail.AMT) || 0);
 
-            await connection.execute(`
-                INSERT INTO BAL_DRUG (
-                    DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
-                    UNIT_CODE1, QTY, UNIT_PRICE, AMT
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-                detail.DRUG_CODE,
-                detail.LOT_NO || '-',
-                detail.EXPIRE_DATE || '-',
-                detail.EXPIRE_DATE || '-',
-                detail.UNIT_CODE1 || detail.UNIT_CODE,
-                newQty,
-                detail.UNIT_COST,
-                newAmt
-            ]);
+                await connection.execute(`
+                    UPDATE BAL_DRUG SET 
+                        QTY = ?, 
+                        AMT = ?,
+                        UNIT_PRICE = ?,
+                        UNIT_CODE1 = ?,
+                        EXPIRE_DATE = ?,
+                        TEXPIRE_DATE = ?
+                    WHERE DRUG_CODE = ? AND LOT_NO = ?
+                `, [
+                    newQty,
+                    newAmt,
+                    detail.UNIT_COST,
+                    detail.UNIT_CODE1 || detail.UNIT_CODE,
+                    detail.EXPIRE_DATE || '-',
+                    detail.EXPIRE_DATE || '-',
+                    detail.DRUG_CODE,
+                    lotNo
+                ]);
+            }
         }
 
         await connection.commit();
@@ -549,23 +616,34 @@ router.delete('/:refno', async (req, res) => {
 
         const { refno } = req.params;
 
-        // ดึงรายการ DRUG_CODE และ LOT_NO ก่อนลบ
+        // ดึงรายการเพื่อคืนค่าใน BAL_DRUG
         const [details] = await connection.execute(
-            'SELECT DRUG_CODE, LOT_NO FROM BORROW1_DT WHERE REFNO = ?',
+            'SELECT DRUG_CODE, LOT_NO, QTY, AMT FROM BORROW1_DT WHERE REFNO = ?',
             [refno]
         );
 
-        // ลบข้อมูลใน STOCK_CARD ที่เกี่ยวข้องกับ REFNO นี้
-        await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
-
-        // ลบข้อมูลใน BAL_DRUG
+        // คืนค่าใน BAL_DRUG (เพิ่มกลับเข้าไป)
         for (const detail of details) {
-            await connection.execute(
-                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
-                [detail.DRUG_CODE, detail.LOT_NO || '-']
+            let lotNo = detail.LOT_NO || '-';
+            const [existingBal] = await connection.execute(
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [detail.DRUG_CODE, lotNo]
             );
+
+            if (existingBal.length > 0) {
+                const oldQty = parseFloat(existingBal[0].QTY) || 0;
+                const oldAmt = parseFloat(existingBal[0].AMT) || 0;
+                const newQty = oldQty + (parseFloat(detail.QTY) || 0); // เพิ่มกลับ
+                const newAmt = oldAmt + (parseFloat(detail.AMT) || 0);
+
+                await connection.execute(
+                    'UPDATE BAL_DRUG SET QTY = ?, AMT = ? WHERE DRUG_CODE = ? AND LOT_NO = ?',
+                    [newQty, newAmt, detail.DRUG_CODE, lotNo]
+                );
+            }
         }
 
+        await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
         await connection.execute('DELETE FROM BORROW1_DT WHERE REFNO = ?', [refno]);
 
         const [result] = await connection.execute('DELETE FROM BORROW1 WHERE REFNO = ?', [refno]);
@@ -582,7 +660,7 @@ router.delete('/:refno', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'ลบใบเบิกสินค้าสำเร็จ และลบข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว'
+            message: 'ลบใบเบิกสินค้าสำเร็จ และอัปเดตข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว'
         });
     } catch (error) {
         await connection.rollback();
@@ -597,7 +675,7 @@ router.delete('/:refno', async (req, res) => {
     }
 });
 
-// GET borrow1 by month/year - แก้ไข: เพิ่ม JOIN กับ EMPLOYEE1
+// GET borrow1 by month/year
 router.get('/period/:year/:month', async (req, res) => {
     try {
         const db = await require('../config/db');

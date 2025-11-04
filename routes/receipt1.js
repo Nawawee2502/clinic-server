@@ -155,7 +155,6 @@ router.get('/search/:term', async (req, res) => {
 
         const params = [`%${term}%`, `%${term}%`, `%${term}%`];
 
-        // เพิ่มเงื่อนไขค้นหาตามวันที่
         if (dateFrom) {
             query += ` AND r.RDATE >= ?`;
             params.push(dateFrom);
@@ -266,7 +265,6 @@ router.post('/', async (req, res) => {
         const year = MYEAR || new Date().getFullYear();
         const month = MONTHH || (new Date().getMonth() + 1);
 
-        // คำนวณยอดเงินตาม TYPE_VAT
         const detailTotal = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
         const vatRate = VAT1 || 7;
         const typeVat = TYPE_VAT || 'include';
@@ -318,13 +316,12 @@ router.post('/', async (req, res) => {
                 detail.DRUG_CODE,
                 detail.QTY,
                 detail.UNIT_COST,
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
+                detail.UNIT_CODE1 || detail.UNIT_CODE,
                 detail.AMT,
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
             ]);
 
-            // ** เพิ่มข้อมูลใน STOCK_CARD (INSERT ใหม่ทุกครั้ง ไม่ UPDATE) **
             await connection.execute(`
                 INSERT INTO STOCK_CARD (
                     REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
@@ -337,60 +334,78 @@ router.post('/', async (req, res) => {
                 year,
                 month,
                 detail.DRUG_CODE,
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
-                0, // BEG1
+                detail.UNIT_CODE1 || detail.UNIT_CODE,
+                0,
                 detail.QTY, // IN1
-                0, // OUT1
-                0, // UPD1
+                0,
+                0,
                 detail.UNIT_COST,
                 detail.AMT, // IN1_AMT
-                0, // OUT1_AMT
-                0, // UPD1_AMT
+                0,
+                0,
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
             ]);
 
-            // ** เพิ่มข้อมูลใน BAL_DRUG (INSERT ใหม่ทุกครั้ง + คำนวณ AMT) **
-            // ดึงข้อมูลเดิมจาก BAL_DRUG
+            // ** ✅ แก้ไข: UPDATE BAL_DRUG ถ้ามียาและ LOT_NO เดียวกัน **
+            const lotNo = detail.LOT_NO || '-';
+
             const [existingBal] = await connection.execute(
-                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
-                [detail.DRUG_CODE]
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [detail.DRUG_CODE, lotNo]
             );
 
-            let newQty = parseFloat(detail.QTY) || 0;
-            let newAmt = parseFloat(detail.AMT) || 0;
-
-            // ถ้ามีข้อมูลเดิม ให้คำนวณรวมกัน (รับสินค้า = เพิ่ม)
             if (existingBal.length > 0) {
+                // มีข้อมูลอยู่แล้ว → UPDATE
                 const oldQty = parseFloat(existingBal[0].QTY) || 0;
                 const oldAmt = parseFloat(existingBal[0].AMT) || 0;
-                newQty = oldQty + newQty;
-                newAmt = oldAmt + newAmt;
-            }
+                const newQty = oldQty + (parseFloat(detail.QTY) || 0); // ใบรับ = เพิ่มจำนวน
+                const newAmt = oldAmt + (parseFloat(detail.AMT) || 0);
 
-            // INSERT ใหม่เข้า BAL_DRUG
-            await connection.execute(`
-                INSERT INTO BAL_DRUG (
-                    DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
-                    UNIT_CODE1, QTY, UNIT_PRICE, AMT
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-                detail.DRUG_CODE,
-                detail.LOT_NO || '-',
-                detail.EXPIRE_DATE || '-',
-                detail.EXPIRE_DATE || '-',
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
-                newQty,
-                detail.UNIT_COST,
-                newAmt
-            ]);
+                await connection.execute(`
+                    UPDATE BAL_DRUG SET 
+                        QTY = ?, 
+                        AMT = ?,
+                        UNIT_PRICE = ?,
+                        UNIT_CODE1 = ?,
+                        EXPIRE_DATE = ?,
+                        TEXPIRE_DATE = ?
+                    WHERE DRUG_CODE = ? AND LOT_NO = ?
+                `, [
+                    newQty,
+                    newAmt,
+                    detail.UNIT_COST,
+                    detail.UNIT_CODE1 || detail.UNIT_CODE,
+                    detail.EXPIRE_DATE || '-',
+                    detail.EXPIRE_DATE || '-',
+                    detail.DRUG_CODE,
+                    lotNo
+                ]);
+            } else {
+                // ไม่มีข้อมูล → INSERT ใหม่
+                await connection.execute(`
+                    INSERT INTO BAL_DRUG (
+                        DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
+                        UNIT_CODE1, QTY, UNIT_PRICE, AMT
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    detail.DRUG_CODE,
+                    lotNo,
+                    detail.EXPIRE_DATE || '-',
+                    detail.EXPIRE_DATE || '-',
+                    detail.UNIT_CODE1 || detail.UNIT_CODE,
+                    parseFloat(detail.QTY) || 0,
+                    detail.UNIT_COST,
+                    parseFloat(detail.AMT) || 0
+                ]);
+            }
         }
 
         await connection.commit();
 
         res.status(201).json({
             success: true,
-            message: 'สร้างใบรับสินค้าสำเร็จ และเพิ่มข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว',
+            message: 'สร้างใบรับสินค้าสำเร็จ และอัปเดตข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว',
             data: {
                 REFNO,
                 TOTAL: total,
@@ -450,23 +465,35 @@ router.put('/:refno', async (req, res) => {
             });
         }
 
-        // ลบข้อมูลใน STOCK_CARD และ BAL_DRUG ที่เกี่ยวข้องกับ REFNO นี้ก่อน
+        // ดึงรายการเดิมเพื่อคืนค่าใน BAL_DRUG ก่อน
         const [oldDetails] = await connection.execute(
-            'SELECT DRUG_CODE FROM RECEIPT1_DT WHERE REFNO = ?',
+            'SELECT DRUG_CODE, LOT_NO, QTY, AMT FROM RECEIPT1_DT WHERE REFNO = ?',
             [refno]
         );
 
-        await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
-
-        // ลบ BAL_DRUG ของ DRUG_CODE เดิม
+        // คืนค่าใน BAL_DRUG (ลบออก)
         for (const oldDetail of oldDetails) {
-            await connection.execute(
-                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ? LIMIT 1',
-                [oldDetail.DRUG_CODE]
+            const lotNo = oldDetail.LOT_NO || '-';
+            const [existingBal] = await connection.execute(
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [oldDetail.DRUG_CODE, lotNo]
             );
+
+            if (existingBal.length > 0) {
+                const oldQty = parseFloat(existingBal[0].QTY) || 0;
+                const oldAmt = parseFloat(existingBal[0].AMT) || 0;
+                const newQty = oldQty - (parseFloat(oldDetail.QTY) || 0); // ลบออก
+                const newAmt = oldAmt - (parseFloat(oldDetail.AMT) || 0);
+
+                await connection.execute(
+                    'UPDATE BAL_DRUG SET QTY = ?, AMT = ? WHERE DRUG_CODE = ? AND LOT_NO = ?',
+                    [newQty, newAmt, oldDetail.DRUG_CODE, lotNo]
+                );
+            }
         }
 
-        // คำนวณยอดเงินตาม TYPE_VAT
+        await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
+
         const detailTotal = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
         const vatRate = VAT1 || 7;
         const typeVat = TYPE_VAT || 'include';
@@ -538,13 +565,12 @@ router.put('/:refno', async (req, res) => {
                 detail.DRUG_CODE,
                 detail.QTY,
                 detail.UNIT_COST,
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
+                detail.UNIT_CODE1 || detail.UNIT_CODE,
                 detail.AMT,
                 detail.LOT_NO,
                 detail.EXPIRE_DATE
             ]);
 
-            // ** เพิ่มข้อมูลใน STOCK_CARD (INSERT ใหม่ทุกครั้ง) **
             await connection.execute(`
                 INSERT INTO STOCK_CARD (
                     REFNO, RDATE, TRDATE, MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1,
@@ -557,7 +583,7 @@ router.put('/:refno', async (req, res) => {
                 MYEAR,
                 MONTHH,
                 detail.DRUG_CODE,
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
+                detail.UNIT_CODE1 || detail.UNIT_CODE,
                 0,
                 detail.QTY,
                 0,
@@ -570,44 +596,62 @@ router.put('/:refno', async (req, res) => {
                 detail.EXPIRE_DATE
             ]);
 
-            // ** เพิ่มข้อมูลใน BAL_DRUG (INSERT ใหม่ทุกครั้ง + คำนวณ AMT) **
+            // ** ✅ UPDATE BAL_DRUG **
+            const lotNo = detail.LOT_NO || '-';
             const [existingBal] = await connection.execute(
-                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
-                [detail.DRUG_CODE]
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [detail.DRUG_CODE, lotNo]
             );
-
-            let newQty = parseFloat(detail.QTY) || 0;
-            let newAmt = parseFloat(detail.AMT) || 0;
 
             if (existingBal.length > 0) {
                 const oldQty = parseFloat(existingBal[0].QTY) || 0;
                 const oldAmt = parseFloat(existingBal[0].AMT) || 0;
-                newQty = oldQty + newQty;
-                newAmt = oldAmt + newAmt;
-            }
+                const newQty = oldQty + (parseFloat(detail.QTY) || 0);
+                const newAmt = oldAmt + (parseFloat(detail.AMT) || 0);
 
-            await connection.execute(`
-                INSERT INTO BAL_DRUG (
-                    DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
-                    UNIT_CODE1, QTY, UNIT_PRICE, AMT
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-                detail.DRUG_CODE,
-                detail.LOT_NO || '-',
-                detail.EXPIRE_DATE || '-',
-                detail.EXPIRE_DATE || '-',
-                detail.UNIT_CODE1 || detail.UNIT_CODE, // รองรับทั้ง UNIT_CODE1 และ UNIT_CODE
-                newQty,
-                detail.UNIT_COST,
-                newAmt
-            ]);
+                await connection.execute(`
+                    UPDATE BAL_DRUG SET 
+                        QTY = ?, 
+                        AMT = ?,
+                        UNIT_PRICE = ?,
+                        UNIT_CODE1 = ?,
+                        EXPIRE_DATE = ?,
+                        TEXPIRE_DATE = ?
+                    WHERE DRUG_CODE = ? AND LOT_NO = ?
+                `, [
+                    newQty,
+                    newAmt,
+                    detail.UNIT_COST,
+                    detail.UNIT_CODE1 || detail.UNIT_CODE,
+                    detail.EXPIRE_DATE || '-',
+                    detail.EXPIRE_DATE || '-',
+                    detail.DRUG_CODE,
+                    lotNo
+                ]);
+            } else {
+                await connection.execute(`
+                    INSERT INTO BAL_DRUG (
+                        DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
+                        UNIT_CODE1, QTY, UNIT_PRICE, AMT
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    detail.DRUG_CODE,
+                    lotNo,
+                    detail.EXPIRE_DATE || '-',
+                    detail.EXPIRE_DATE || '-',
+                    detail.UNIT_CODE1 || detail.UNIT_CODE,
+                    parseFloat(detail.QTY) || 0,
+                    detail.UNIT_COST,
+                    parseFloat(detail.AMT) || 0
+                ]);
+            }
         }
 
         await connection.commit();
 
         res.json({
             success: true,
-            message: 'แก้ไขใบรับสินค้าสำเร็จ และเพิ่มข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว',
+            message: 'แก้ไขใบรับสินค้าสำเร็จ และอัปเดตข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว',
             data: {
                 REFNO: refno,
                 TOTAL: total,
@@ -638,23 +682,34 @@ router.delete('/:refno', async (req, res) => {
 
         const { refno } = req.params;
 
-        // ดึงรายการ DRUG_CODE ก่อนลบ
+        // ดึงรายการเพื่อคืนค่าใน BAL_DRUG
         const [details] = await connection.execute(
-            'SELECT DRUG_CODE FROM RECEIPT1_DT WHERE REFNO = ?',
+            'SELECT DRUG_CODE, LOT_NO, QTY, AMT FROM RECEIPT1_DT WHERE REFNO = ?',
             [refno]
         );
 
-        // ลบข้อมูลใน STOCK_CARD ที่เกี่ยวข้องกับ REFNO นี้
-        await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
-
-        // ลบข้อมูลใน BAL_DRUG
+        // คืนค่าใน BAL_DRUG (ลบออก)
         for (const detail of details) {
-            await connection.execute(
-                'DELETE FROM BAL_DRUG WHERE DRUG_CODE = ? LIMIT 1',
-                [detail.DRUG_CODE]
+            const lotNo = detail.LOT_NO || '-';
+            const [existingBal] = await connection.execute(
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND LOT_NO = ? LIMIT 1',
+                [detail.DRUG_CODE, lotNo]
             );
+
+            if (existingBal.length > 0) {
+                const oldQty = parseFloat(existingBal[0].QTY) || 0;
+                const oldAmt = parseFloat(existingBal[0].AMT) || 0;
+                const newQty = oldQty - (parseFloat(detail.QTY) || 0); // ลบออก
+                const newAmt = oldAmt - (parseFloat(detail.AMT) || 0);
+
+                await connection.execute(
+                    'UPDATE BAL_DRUG SET QTY = ?, AMT = ? WHERE DRUG_CODE = ? AND LOT_NO = ?',
+                    [newQty, newAmt, detail.DRUG_CODE, lotNo]
+                );
+            }
         }
 
+        await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
         await connection.execute('DELETE FROM RECEIPT1_DT WHERE REFNO = ?', [refno]);
 
         const [result] = await connection.execute('DELETE FROM RECEIPT1 WHERE REFNO = ?', [refno]);
@@ -671,7 +726,7 @@ router.delete('/:refno', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'ลบใบรับสินค้าสำเร็จ และลบข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว'
+            message: 'ลบใบรับสินค้าสำเร็จ และอัปเดตข้อมูลใน STOCK_CARD และ BAL_DRUG แล้ว'
         });
     } catch (error) {
         await connection.rollback();
