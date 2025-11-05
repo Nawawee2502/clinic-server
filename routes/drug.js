@@ -142,7 +142,7 @@ router.post('/', async (req, res) => {
         const {
             DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_CODE1, UNIT_PRICE,
             Type1, Dose1, Indication1, Effect1, Contraindications1,
-            Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD
+            Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD, eat1
         } = req.body;
 
         if (!DRUG_CODE || !GENERIC_NAME) {
@@ -156,9 +156,9 @@ router.post('/', async (req, res) => {
             INSERT INTO TABLE_DRUG (
                 DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_CODE1, UNIT_PRICE,
                 Type1, Dose1, Indication1, Effect1, Contraindications1,
-                Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD
+                Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD, eat1
             ) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
             DRUG_CODE,
             GENERIC_NAME,
@@ -174,7 +174,8 @@ router.post('/', async (req, res) => {
             Comment1 || 'None',
             Drug_formulations || null,
             SOCIAL_CARD || 'N',
-            UCS_CARD || 'N'
+            UCS_CARD || 'N',
+            eat1 || null
         ]);
 
         res.status(201).json({
@@ -214,7 +215,7 @@ router.put('/:code', async (req, res) => {
         const {
             GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_CODE1, UNIT_PRICE,
             Type1, Dose1, Indication1, Effect1, Contraindications1,
-            Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD
+            Comment1, Drug_formulations, SOCIAL_CARD, UCS_CARD, eat1
         } = req.body;
 
         if (!GENERIC_NAME) {
@@ -229,7 +230,7 @@ router.put('/:code', async (req, res) => {
                 GENERIC_NAME = ?, TRADE_NAME = ?, UNIT_CODE = ?, UNIT_CODE1 = ?, UNIT_PRICE = ?,
                 Type1 = ?, Dose1 = ?, Indication1 = ?, Effect1 = ?, 
                 Contraindications1 = ?, Comment1 = ?, Drug_formulations = ?,
-                SOCIAL_CARD = ?, UCS_CARD = ?
+                SOCIAL_CARD = ?, UCS_CARD = ?, eat1 = ?
             WHERE DRUG_CODE = ?
         `, [
             GENERIC_NAME,
@@ -246,6 +247,7 @@ router.put('/:code', async (req, res) => {
             Drug_formulations || null,
             SOCIAL_CARD || 'N',
             UCS_CARD || 'N',
+            eat1 || null,
             code
         ]);
 
