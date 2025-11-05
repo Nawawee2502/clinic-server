@@ -1,6 +1,61 @@
 const express = require('express');
 const router = express.Router();
 
+// ✅ Function to get Thailand time (UTC+7) - แก้ไขให้ใช้เวลาไทยอย่างถูกต้อง
+function getThailandTime() {
+    const now = new Date();
+    // ✅ ใช้ Intl.DateTimeFormat เพื่อดึงเวลาไทยโดยตรง
+    const thailandTimeStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    }).formatToParts(now);
+    
+    // ✅ สร้าง Date object จากเวลาไทย
+    const year = parseInt(thailandTimeStr.find(p => p.type === 'year').value);
+    const month = parseInt(thailandTimeStr.find(p => p.type === 'month').value) - 1; // month is 0-indexed
+    const day = parseInt(thailandTimeStr.find(p => p.type === 'day').value);
+    const hour = parseInt(thailandTimeStr.find(p => p.type === 'hour').value);
+    const minute = parseInt(thailandTimeStr.find(p => p.type === 'minute').value);
+    const second = parseInt(thailandTimeStr.find(p => p.type === 'second').value);
+    
+    // ✅ สร้าง Date object โดยใช้เวลาไทย
+    const thailandDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`;
+    return new Date(thailandDateStr + '+07:00'); // ✅ ระบุ timezone เป็น +07:00
+}
+
+// ✅ Function to format date for database (YYYY-MM-DD) - ใช้เวลาไทย
+function formatDateForDB(date) {
+    // ✅ ใช้ Intl.DateTimeFormat เพื่อดึงวันที่จากเวลาไทย
+    const dateStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(date);
+    
+    return dateStr; // ✅ ได้รูปแบบ YYYY-MM-DD จากเวลาไทย
+}
+
+// ✅ Function to format time for database (HH:MM:SS) - ใช้เวลาไทย
+function formatTimeForDB(date) {
+    // ✅ ใช้ Intl.DateTimeFormat เพื่อดึงเวลาจากเวลาไทย
+    const timeStr = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Bangkok',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    }).format(date);
+    
+    return timeStr; // ✅ ได้รูปแบบ HH:MM:SS จากเวลาไทย
+}
+
 const ensureProcedureExists = async (connection, procedureCode, procedureName) => {
     try {
         let code = (procedureCode || '').toString();
@@ -372,16 +427,19 @@ router.post('/', async (req, res) => {
             });
         }
 
-        const today = new Date();
-        const buddhistYear = (today.getFullYear() + 543).toString().slice(-2);
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
+        // ✅ ใช้เวลาไทยแทน new Date()
+        const thailandTime = getThailandTime();
+        const thailandDate = formatDateForDB(thailandTime);
+        const buddhistYear = (thailandTime.getFullYear() + 543).toString().slice(-2);
+        const month = String(thailandTime.getMonth() + 1).padStart(2, '0');
+        const day = String(thailandTime.getDate()).padStart(2, '0');
 
+        // ✅ ใช้เวลาไทยแทน CURDATE()
         const [vnCount] = await connection.execute(`
             SELECT COUNT(*) + 1 as next_number
             FROM TREATMENT1 
-            WHERE VNO LIKE ? AND DATE(SYSTEM_DATE) = CURDATE()
-        `, [`VN${buddhistYear}${month}${day}%`]);
+            WHERE VNO LIKE ? AND DATE(SYSTEM_DATE) = ?
+        `, [`VN${buddhistYear}${month}${day}%`, thailandDate]);
 
         const runningNumber = vnCount[0].next_number.toString().padStart(3, '0');
         const VNO = `VN${buddhistYear}${month}${day}${runningNumber}`;
@@ -411,17 +469,20 @@ router.post('/', async (req, res) => {
                 APPOINTMENT_DATE, APPOINTMENT_TDATE, EMP_CODE, EMP_CODE1,
                 SYSTEM_DATE, SYSTEM_TIME, STATUS1, QUEUE_ID, INVESTIGATION_NOTES,
                 SOCIAL_CARD, UCS_CARD
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
             VNO,
             toNull(HNNO),
-            toNull(RDATE) || today.toISOString().split('T')[0],
+            toNull(RDATE) || thailandDate, // ✅ ใช้เวลาไทยแทน today.toISOString()
             toNull(TRDATE),
             toNull(WEIGHT1), toNull(HIGHT1), toNull(BT1), toNull(BP1), toNull(BP2),
             toNull(RR1), toNull(PR1), toNull(SPO2), toNull(SYMPTOM),
             toNull(DXCODE), toNull(ICD10CODE), toNull(TREATMENT1),
             toNull(APPOINTMENT_DATE), toNull(APPOINTMENT_TDATE),
-            toNull(EMP_CODE), toNull(EMP_CODE1), toNull(STATUS1),
+            toNull(EMP_CODE), toNull(EMP_CODE1),
+            formatDateForDB(thailandTime), // ✅ ใช้เวลาไทยแทน CURDATE()
+            formatTimeForDB(thailandTime), // ✅ ใช้เวลาไทยแทน CURTIME()
+            toNull(STATUS1),
             toNull(QUEUE_ID), toNull(INVESTIGATION_NOTES),
             socialCard,
             ucsCard
@@ -944,7 +1005,11 @@ router.get('/stats/revenue', async (req, res) => {
             dateFilter = 'WHERE t.PAYMENT_DATE <= ?';
             params = [date_to];
         } else {
-            dateFilter = 'WHERE YEAR(t.PAYMENT_DATE) = YEAR(CURDATE()) AND MONTH(t.PAYMENT_DATE) = MONTH(CURDATE())';
+            // ✅ ใช้เวลาไทยแทน CURDATE()
+            const thailandDate = formatDateForDB(getThailandTime());
+            const thailandYear = thailandDate.split('-')[0];
+            const thailandMonth = thailandDate.split('-')[1];
+            dateFilter = `WHERE YEAR(t.PAYMENT_DATE) = ${thailandYear} AND MONTH(t.PAYMENT_DATE) = ${thailandMonth}`;
         }
 
         const [revenueStats] = await db.execute(`

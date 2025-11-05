@@ -9,7 +9,7 @@ const router = express.Router();
 router.get('/units', async (req, res) => {
     try {
         const db = await require('../config/db');
-        const [rows] = await db.execute('SELECT * FROM table_unit ORDER BY UNIT_NAME');
+        const [rows] = await db.execute('SELECT * FROM TABLE_UNIT ORDER BY UNIT_NAME');
 
         res.json({
             success: true,
@@ -31,7 +31,7 @@ router.get('/units/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
-        const [rows] = await db.execute('SELECT * FROM table_unit WHERE UNIT_CODE = ?', [code]);
+        const [rows] = await db.execute('SELECT * FROM TABLE_UNIT WHERE UNIT_CODE = ?', [code]);
 
         if (rows.length === 0) {
             return res.status(404).json({
@@ -68,7 +68,7 @@ router.post('/units', async (req, res) => {
         }
 
         const [result] = await db.execute(
-            'INSERT INTO table_unit (UNIT_CODE, UNIT_NAME) VALUES (?, ?)',
+            'INSERT INTO TABLE_UNIT (UNIT_CODE, UNIT_NAME) VALUES (?, ?)',
             [UNIT_CODE, UNIT_NAME]
         );
 
@@ -102,7 +102,7 @@ router.put('/units/:code', async (req, res) => {
         const { UNIT_NAME } = req.body;
 
         const [result] = await db.execute(
-            'UPDATE table_unit SET UNIT_NAME = ? WHERE UNIT_CODE = ?',
+            'UPDATE TABLE_UNIT SET UNIT_NAME = ? WHERE UNIT_CODE = ?',
             [UNIT_NAME, code]
         );
 
@@ -134,7 +134,7 @@ router.delete('/units/:code', async (req, res) => {
         const db = await require('../config/db');
         const { code } = req.params;
 
-        const [result] = await db.execute('DELETE FROM table_unit WHERE UNIT_CODE = ?', [code]);
+        const [result] = await db.execute('DELETE FROM TABLE_UNIT WHERE UNIT_CODE = ?', [code]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -337,7 +337,7 @@ router.get('/stats/summary', async (req, res) => {
         const db = await require('../config/db');
 
         // Unit statistics
-        const [unitCount] = await db.execute('SELECT COUNT(*) as total FROM table_unit');
+        const [unitCount] = await db.execute('SELECT COUNT(*) as total FROM TABLE_UNIT');
 
         // Package statistics
         const [packageCount] = await db.execute('SELECT COUNT(*) as total FROM table_package');
@@ -350,9 +350,9 @@ router.get('/stats/summary', async (req, res) => {
                 COUNT(td.VNO) as drug_usage,
                 COUNT(tmp.VNO) as procedure_usage,
                 (COUNT(td.VNO) + COUNT(tmp.VNO)) as total_usage
-            FROM table_unit u
-            LEFT JOIN treatment1_drug td ON u.UNIT_CODE = td.UNIT_CODE
-            LEFT JOIN treatment1_med_procedure tmp ON u.UNIT_CODE = tmp.UNIT_CODE
+            FROM TABLE_UNIT u
+            LEFT JOIN TREATMENT1_DRUG td ON u.UNIT_CODE = td.UNIT_CODE
+            LEFT JOIN TREATMENT1_MED_PROCEDURE tmp ON u.UNIT_CODE = tmp.UNIT_CODE
             GROUP BY u.UNIT_CODE, u.UNIT_NAME
             ORDER BY total_usage DESC
             LIMIT 10

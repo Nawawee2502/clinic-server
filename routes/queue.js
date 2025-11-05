@@ -2,30 +2,75 @@
 const express = require('express');
 const router = express.Router();
 
-// Function to get Thailand time (UTC+7)
+// ✅ Function to get Thailand time (UTC+7) - แก้ไขให้ใช้เวลาไทยอย่างถูกต้อง
 function getThailandTime() {
     const now = new Date();
-    // Convert to Thailand timezone
-    const thailandTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
-    return thailandTime;
+    // ✅ ใช้ Intl.DateTimeFormat เพื่อดึงเวลาไทยโดยตรง
+    const thailandTimeStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    }).formatToParts(now);
+    
+    // ✅ สร้าง Date object จากเวลาไทย
+    const year = parseInt(thailandTimeStr.find(p => p.type === 'year').value);
+    const month = parseInt(thailandTimeStr.find(p => p.type === 'month').value) - 1; // month is 0-indexed
+    const day = parseInt(thailandTimeStr.find(p => p.type === 'day').value);
+    const hour = parseInt(thailandTimeStr.find(p => p.type === 'hour').value);
+    const minute = parseInt(thailandTimeStr.find(p => p.type === 'minute').value);
+    const second = parseInt(thailandTimeStr.find(p => p.type === 'second').value);
+    
+    // ✅ สร้าง Date object โดยใช้เวลาไทย (แต่ต้องระวังว่า date object จะยังเป็น UTC internally)
+    // ใช้วิธีอื่น: สร้าง string แล้วแปลงกลับเป็น date
+    const thailandDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`;
+    return new Date(thailandDateStr + '+07:00'); // ✅ ระบุ timezone เป็น +07:00
 }
 
-// Function to format date for database (YYYY-MM-DD)
+// ✅ Function to format date for database (YYYY-MM-DD) - ใช้เวลาไทย
 function formatDateForDB(date) {
-    return date.toISOString().split('T')[0];
+    // ✅ ใช้ Intl.DateTimeFormat เพื่อดึงวันที่จากเวลาไทย
+    const dateStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(date);
+    
+    return dateStr; // ✅ ได้รูปแบบ YYYY-MM-DD จากเวลาไทย
 }
 
-// Function to format time for database (HH:MM:SS)
+// ✅ Function to format time for database (HH:MM:SS) - ใช้เวลาไทย
 function formatTimeForDB(date) {
-    return date.toTimeString().split(' ')[0];
+    // ✅ ใช้ Intl.DateTimeFormat เพื่อดึงเวลาจากเวลาไทย
+    const timeStr = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Bangkok',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    }).format(date);
+    
+    return timeStr; // ✅ ได้รูปแบบ HH:MM:SS จากเวลาไทย
 }
 
-// Function to generate Queue ID using Thailand date
+// ✅ Function to generate Queue ID using Thailand date - ใช้เวลาไทย
 function generateQueueId(queueNumber, date = getThailandTime()) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const dateStr = `${year}${month}${day}`;
+    // ✅ ใช้ Intl.DateTimeFormat เพื่อดึงวันที่จากเวลาไทย
+    const thailandDateStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(date);
+    
+    // ✅ ได้รูปแบบ YYYY-MM-DD จากเวลาไทย แล้วแปลงเป็น YYYYMMDD
+    const dateStr = thailandDateStr.replace(/-/g, '');
+    
     return `Q${dateStr}${String(queueNumber).padStart(3, '0')}`;
 }
 
