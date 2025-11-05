@@ -133,6 +133,7 @@ app.get('/', (req, res) => {
             checkStock: '/api/check_stock',
             receipt1: '/api/receipt1',
             return1: '/api/return1',
+            stockCard: '/api/stock_card',
 
             // System
             health: '/api/health',

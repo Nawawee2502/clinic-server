@@ -18,7 +18,9 @@ router.get('/', async (req, res) => {
                 u.UNIT_NAME as UNIT_NAME1,
                 b.QTY,
                 b.UNIT_PRICE,
-                b.AMT
+                b.AMT,
+                b.LOT_NO,
+                b.EXPIRE_DATE
             FROM BEG_MONTH_DRUG b
             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
@@ -116,7 +118,9 @@ router.get('/period/:year/:month', async (req, res) => {
                 u.UNIT_NAME as UNIT_NAME1,
                 b.QTY,
                 b.UNIT_PRICE,
-                b.AMT
+                b.AMT,
+                b.LOT_NO,
+                b.EXPIRE_DATE
             FROM BEG_MONTH_DRUG b
             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
@@ -158,7 +162,9 @@ router.get('/drug/:drugCode', async (req, res) => {
                 u.UNIT_NAME as UNIT_NAME1,
                 b.QTY,
                 b.UNIT_PRICE,
-                b.AMT
+                b.AMT,
+                b.LOT_NO,
+                b.EXPIRE_DATE
             FROM BEG_MONTH_DRUG b
             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
@@ -200,7 +206,9 @@ router.get('/:year/:month/:drugCode', async (req, res) => {
                 u.UNIT_NAME as UNIT_NAME1,
                 b.QTY,
                 b.UNIT_PRICE,
-                b.AMT
+                b.AMT,
+                b.LOT_NO,
+                b.EXPIRE_DATE
             FROM BEG_MONTH_DRUG b
             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
@@ -247,7 +255,9 @@ router.get('/search/:term', async (req, res) => {
                 u.UNIT_NAME as UNIT_NAME1,
                 b.QTY,
                 b.UNIT_PRICE,
-                b.AMT
+                b.AMT,
+                b.LOT_NO,
+                b.EXPIRE_DATE
             FROM BEG_MONTH_DRUG b
             LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
@@ -324,7 +334,9 @@ router.post('/', async (req, res) => {
             UNIT_CODE1,
             QTY,
             UNIT_PRICE,
-            AMT
+            AMT,
+            LOT_NO,
+            EXPIRE_DATE
         } = req.body;
 
         console.log('📝 Received data:', req.body);
@@ -368,8 +380,8 @@ router.post('/', async (req, res) => {
         await connection.execute(
             `INSERT INTO BEG_MONTH_DRUG (
                 MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
-                QTY, UNIT_PRICE, AMT
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                QTY, UNIT_PRICE, AMT, LOT_NO, EXPIRE_DATE
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 MYEAR,
                 MONTHH,
@@ -377,7 +389,9 @@ router.post('/', async (req, res) => {
                 UNIT_CODE1 || null,
                 QTY || 0,
                 UNIT_PRICE || 0,
-                AMT || 0
+                AMT || 0,
+                LOT_NO || null,
+                EXPIRE_DATE || null
             ]
         );
         console.log('✅ Inserted into BEG_MONTH_DRUG');
@@ -525,7 +539,7 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
         await connection.beginTransaction();
 
         const { year, month, drugCode } = req.params;
-        const { UNIT_CODE1, QTY, UNIT_PRICE, AMT } = req.body;
+        const { UNIT_CODE1, QTY, UNIT_PRICE, AMT, LOT_NO, EXPIRE_DATE } = req.body;
 
         console.log('📝 Updating:', { year, month, drugCode, UNIT_CODE1, QTY, UNIT_PRICE, AMT });
 
@@ -561,9 +575,11 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
                 UNIT_CODE1 = ?, 
                 QTY = ?, 
                 UNIT_PRICE = ?,
-                AMT = ?
+                AMT = ?,
+                LOT_NO = ?,
+                EXPIRE_DATE = ?
             WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
-            [UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0, year, month, drugCode]
+            [UNIT_CODE1 || null, QTY || 0, UNIT_PRICE || 0, AMT || 0, LOT_NO || null, EXPIRE_DATE || null, year, month, drugCode]
         );
 
         if (result.affectedRows === 0) {

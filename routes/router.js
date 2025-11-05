@@ -35,6 +35,7 @@ const checkStockRoutes = require('./check_stock');
 const receipt1Routes = require('./receipt1');
 const return1Routes = require('./return1');
 const balDrugRoutes = require('./bal-drug');
+const stockCardRoutes = require('./stock_card');
 
 
 
@@ -65,7 +66,7 @@ router.get('/test', (req, res) => {
             appointment: ['appointments', 'queue'],
             utilities: ['units', 'packages'],
             finance: ['typepay', 'typeincome', 'supplier', 'bank', 'book-bank', 'pay1', 'income1'],
-            inventory: ['bal_month_drug', 'borrow1', 'check_stock', 'receipt1', 'return1']
+            inventory: ['bal_month_drug', 'borrow1', 'check_stock', 'receipt1', 'return1', 'stock_card']
         }
     });
 });
@@ -332,6 +333,20 @@ router.get('/docs', (req, res) => {
             'POST /return1': 'Create new return1 with details',
             'PUT /return1/:refno': 'Update return1 with details',
             'DELETE /return1/:refno': 'Delete return1 with details',
+
+            // ✅ STOCK_CARD APIs
+            'GET /stock_card': 'Get all stock card records (with optional filters)',
+            'GET /stock_card/stats/summary': 'Get stock card statistics',
+            'GET /stock_card/period/:year/:month': 'Get stock cards by period',
+            'GET /stock_card/drug/:drugCode': 'Get stock cards by drug code',
+            'GET /stock_card/refno/:refno': 'Get stock cards by REFNO',
+            'GET /stock_card/:year/:month/:drugCode/:refno': 'Get specific stock card record',
+            'GET /stock_card/search/:term': 'Search stock card records',
+            'POST /stock_card': 'Create new stock card record',
+            'PUT /stock_card/:year/:month/:drugCode/:refno': 'Update stock card record',
+            'DELETE /stock_card/:year/:month/:drugCode/:refno': 'Delete stock card record',
+            'DELETE /stock_card/refno/:refno': 'Delete stock cards by REFNO',
+            'DELETE /stock_card/period/:year/:month': 'Delete stock cards by period',
         },
         notes: {
             pagination: 'Most list endpoints support ?page=1&limit=50 parameters',
@@ -399,6 +414,7 @@ router.use('/check_stock', checkStockRoutes);
 router.use('/receipt1', receipt1Routes);
 router.use('/return1', return1Routes);
 router.use('/bal_drug', balDrugRoutes);
+router.use('/stock_card', stockCardRoutes);
 
 
 // Utility APIs (handled by unit-package.js)
