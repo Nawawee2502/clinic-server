@@ -9,7 +9,11 @@ const router = express.Router();
 router.get('/units', async (req, res) => {
     try {
         const db = await require('../config/db');
+        console.log('🔍 Fetching units from database...');
+        
+        // ลอง query เพื่อดูว่ามี table หรือไม่
         const [rows] = await db.execute('SELECT * FROM TABLE_UNIT ORDER BY UNIT_NAME');
+        console.log(`✅ Found ${rows.length} units`);
 
         res.json({
             success: true,
@@ -17,11 +21,20 @@ router.get('/units', async (req, res) => {
             count: rows.length
         });
     } catch (error) {
-        console.error('Error fetching units:', error);
+        console.error('❌ Error fetching units:', error);
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            sqlState: error.sqlState,
+            sqlMessage: error.sqlMessage,
+            errno: error.errno
+        });
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูลหน่วยนับ',
-            error: error.message
+            error: error.message,
+            code: error.code || 'UNKNOWN_ERROR',
+            sqlMessage: error.sqlMessage || null
         });
     }
 });
