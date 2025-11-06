@@ -138,10 +138,17 @@ router.get('/', async (req, res) => {
         const { page = 1, limit = 100 } = req.query;
         const offset = (page - 1) * limit;
 
+        // ✅ JOIN กับ TABLE_DRUG และ TABLE_UNIT เพื่อดึงชื่อยาและหน่วย
         const [rows] = await db.execute(`
-            SELECT *
-            FROM BAL_DRUG
-            ORDER BY DRUG_CODE
+            SELECT 
+                b.*,
+                d.GENERIC_NAME,
+                d.TRADE_NAME,
+                u.UNIT_NAME as UNIT_NAME1
+            FROM BAL_DRUG b
+            LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
+            LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
+            ORDER BY b.DRUG_CODE
             LIMIT ? OFFSET ?
         `, [parseInt(limit), parseInt(offset)]);
 
