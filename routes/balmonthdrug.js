@@ -373,6 +373,7 @@ router.post('/', async (req, res) => {
         );
 
         let isUpdate = existing.length > 0;
+        let balDrugUpdated = false; // ✅ flag ว่า BAL_DRUG ถูกอัปเดตแล้วหรือยัง
 
         if (isUpdate) {
             // ✅ ถ้ามีข้อมูลอยู่แล้ว ให้ UPDATE แทน
@@ -454,45 +455,103 @@ router.post('/', async (req, res) => {
                     ]
                 );
                 console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (new LOT)');
+                
+                // ✅ ถ้า INSERT STOCK_CARD ใหม่ (LOTNO ต่างกัน) ให้บวกค่าเข้า BAL_DRUG ด้วย
+                const [existingBalForNewLot] = await connection.execute(
+                    'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
+                    [DRUG_CODE]
+                );
+                
+                if (existingBalForNewLot.length > 0) {
+                    const balOldQty = parseFloat(existingBalForNewLot[0].QTY) || 0;
+                    const balOldAmt = parseFloat(existingBalForNewLot[0].AMT) || 0;
+                    // บวกค่าใหม่เข้าไป (ไม่ต้องลบค่าเดิมเพราะเป็น LOT ใหม่)
+                    const newQty = balOldQty + (parseFloat(QTY) || 0);
+                    const newAmt = balOldAmt + (parseFloat(AMT) || 0);
+                    
+                    await connection.execute(
+                        `UPDATE BAL_DRUG SET 
+                            QTY = ?, 
+                            AMT = ?,
+                            UNIT_PRICE = ?,
+                            UNIT_CODE1 = ?,
+                            LOT_NO = ?,
+                            EXPIRE_DATE = ?,
+                            TEXPIRE_DATE = ?
+                        WHERE DRUG_CODE = ?
+                        ORDER BY AMT DESC
+                        LIMIT 1`,
+                        [
+                            newQty,
+                            newAmt,
+                            UNIT_PRICE || 0,
+                            UNIT_CODE1 || null,
+                            '-',
+                            '-',
+                            '-',
+                            DRUG_CODE
+                        ]
+                    );
+                    console.log('✅ Updated BAL_DRUG (added new LOT values)');
+                } else {
+                    // ไม่มีข้อมูล → INSERT ใหม่
+                    await connection.execute(
+                        `INSERT INTO BAL_DRUG (
+                            DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
+                            UNIT_CODE1, QTY, UNIT_PRICE, AMT
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            DRUG_CODE, '-', '-', '-',
+                            UNIT_CODE1 || null,
+                            parseFloat(QTY) || 0,
+                            UNIT_PRICE || 0,
+                            parseFloat(AMT) || 0
+                        ]
+                    );
+                    console.log('✅ Inserted new record into BAL_DRUG (new LOT)');
+                }
+                balDrugUpdated = true; // ✅ ตั้ง flag ว่า BAL_DRUG ถูกอัปเดตแล้ว
             }
             
-            // ✅ คำนวณ BAL_DRUG โดยลบค่าเดิมก่อน แล้วบวกค่าใหม่
-            const [existingBal] = await connection.execute(
-                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
-                [DRUG_CODE]
-            );
-
-            if (existingBal.length > 0) {
-                const balOldQty = parseFloat(existingBal[0].QTY) || 0;
-                const balOldAmt = parseFloat(existingBal[0].AMT) || 0;
-                // ลบค่าเดิมออกก่อน แล้วบวกค่าใหม่
-                const newQty = balOldQty - oldQty + (parseFloat(QTY) || 0);
-                const newAmt = balOldAmt - oldAmt + (parseFloat(AMT) || 0);
-
-                await connection.execute(
-                    `UPDATE BAL_DRUG SET 
-                        QTY = ?, 
-                        AMT = ?,
-                        UNIT_PRICE = ?,
-                        UNIT_CODE1 = ?,
-                        LOT_NO = ?,
-                        EXPIRE_DATE = ?,
-                        TEXPIRE_DATE = ?
-                    WHERE DRUG_CODE = ?
-                    ORDER BY AMT DESC
-                    LIMIT 1`,
-                    [
-                        newQty,
-                        newAmt,
-                        UNIT_PRICE || 0,
-                        UNIT_CODE1 || null,
-                        '-',
-                        '-',
-                        '-',
-                        DRUG_CODE
-                    ]
+            // ✅ คำนวณ BAL_DRUG โดยลบค่าเดิมก่อน แล้วบวกค่าใหม่ (กรณี UPDATE STOCK_CARD เดิม)
+            if (!balDrugUpdated) {
+                const [existingBal] = await connection.execute(
+                    'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
+                    [DRUG_CODE]
                 );
-                console.log('✅ Updated BAL_DRUG (replaced old values)');
+
+                if (existingBal.length > 0) {
+                    const balOldQty = parseFloat(existingBal[0].QTY) || 0;
+                    const balOldAmt = parseFloat(existingBal[0].AMT) || 0;
+                    // ลบค่าเดิมออกก่อน แล้วบวกค่าใหม่
+                    const newQty = balOldQty - oldQty + (parseFloat(QTY) || 0);
+                    const newAmt = balOldAmt - oldAmt + (parseFloat(AMT) || 0);
+
+                    await connection.execute(
+                        `UPDATE BAL_DRUG SET 
+                            QTY = ?, 
+                            AMT = ?,
+                            UNIT_PRICE = ?,
+                            UNIT_CODE1 = ?,
+                            LOT_NO = ?,
+                            EXPIRE_DATE = ?,
+                            TEXPIRE_DATE = ?
+                        WHERE DRUG_CODE = ?
+                        ORDER BY AMT DESC
+                        LIMIT 1`,
+                        [
+                            newQty,
+                            newAmt,
+                            UNIT_PRICE || 0,
+                            UNIT_CODE1 || null,
+                            '-',
+                            '-',
+                            '-',
+                            DRUG_CODE
+                        ]
+                    );
+                    console.log('✅ Updated BAL_DRUG (replaced old values)');
+                }
             }
         } else {
             // ✅ ถ้าไม่มีข้อมูล ให้ INSERT ใหม่
