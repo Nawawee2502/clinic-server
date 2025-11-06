@@ -362,10 +362,14 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // ✅ เช็คว่ามีข้อมูลอยู่แล้วหรือไม่ - ถ้ามีให้ UPDATE แทน INSERT (ไม่ต้องเช็คซ้ำ)
+        // ✅ เช็คว่ามีข้อมูลอยู่แล้วหรือไม่ - ถ้ามี LOT_NO เดียวกันให้ UPDATE แทน INSERT
+        // ✅ ถ้า LOT_NO ต่างกัน ให้ INSERT ใหม่ (ไม่ต้องเช็คซ้ำ)
+        const lotNoValue = LOT_NO || null;
         const [existing] = await connection.execute(
-            'SELECT * FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
-            [MYEAR, MONTHH, DRUG_CODE]
+            `SELECT * FROM BEG_MONTH_DRUG 
+             WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ? 
+             AND ((LOT_NO = ?) OR (LOT_NO IS NULL AND ? IS NULL))`,
+            [MYEAR, MONTHH, DRUG_CODE, lotNoValue, lotNoValue]
         );
 
         let isUpdate = existing.length > 0;
@@ -386,7 +390,8 @@ router.post('/', async (req, res) => {
                     AMT = ?,
                     LOT_NO = ?,
                     EXPIRE_DATE = ?
-                WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
+                WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ? 
+                AND ((LOT_NO = ?) OR (LOT_NO IS NULL AND ? IS NULL))`,
                 [
                     UNIT_CODE1 || null,
                     QTY || 0,
@@ -396,31 +401,40 @@ router.post('/', async (req, res) => {
                     EXPIRE_DATE || null,
                     MYEAR,
                     MONTHH,
-                    DRUG_CODE
+                    DRUG_CODE,
+                    lotNoValue,
+                    lotNoValue
                 ]
             );
             console.log('✅ Updated BEG_MONTH_DRUG');
             
-            // ✅ อัปเดต STOCK_CARD เมื่อ UPDATE
+            // ✅ อัปเดต STOCK_CARD เมื่อ UPDATE (เช็ค LOTNO ด้วย)
+            const lotNoForStock = LOT_NO || '-';
             const [stockCheck] = await connection.execute(
-                'SELECT * FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
-                [MYEAR, MONTHH, DRUG_CODE]
+                `SELECT * FROM STOCK_CARD 
+                 WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ? 
+                 AND ((LOTNO = ?) OR (LOTNO IS NULL AND ? = '-'))`,
+                [MYEAR, MONTHH, DRUG_CODE, lotNoForStock, lotNoForStock]
             );
 
             if (stockCheck.length > 0) {
+                // ✅ ถ้ามี LOTNO เดียวกัน ให้ UPDATE
                 await connection.execute(
                     `UPDATE STOCK_CARD SET 
                         REFNO = 'BEG',
                         UNIT_CODE1 = ?, 
                         BEG1 = ?,
                         BEG1_AMT = ?,
-                        UNIT_COST = ?
-                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
-                    [UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, MYEAR, MONTHH, DRUG_CODE]
+                        UNIT_COST = ?,
+                        LOTNO = ?,
+                        EXPIRE_DATE = ?
+                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ? 
+                    AND ((LOTNO = ?) OR (LOTNO IS NULL AND ? = '-'))`,
+                    [UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, lotNoForStock, EXPIRE_DATE || '-', MYEAR, MONTHH, DRUG_CODE, lotNoForStock, lotNoForStock]
                 );
-                console.log('✅ Updated STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST');
+                console.log('✅ Updated STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (same LOT)');
             } else {
-                // ถ้ายังไม่มี STOCK_CARD ให้ INSERT
+                // ✅ ถ้า LOTNO ต่างกัน ให้ INSERT ใหม่
                 await connection.execute(
                     `INSERT INTO STOCK_CARD (
                         REFNO, RDATE, TRDATE,
@@ -436,10 +450,10 @@ router.post('/', async (req, res) => {
                         MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1 || null,
                         QTY || 0, 0, 0, 0,
                         UNIT_PRICE || 0, AMT || 0, 0, 0, 0,
-                        LOT_NO || '-', EXPIRE_DATE || '-'
+                        lotNoForStock, EXPIRE_DATE || '-'
                     ]
                 );
-                console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST');
+                console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (new LOT)');
             }
             
             // ✅ คำนวณ BAL_DRUG โดยลบค่าเดิมก่อน แล้วบวกค่าใหม่
@@ -502,26 +516,34 @@ router.post('/', async (req, res) => {
             );
             console.log('✅ Inserted into BEG_MONTH_DRUG');
             
-            // 2. เพิ่มหรืออัปเดต STOCK_CARD (กรณี INSERT ใหม่)
+            // 2. เพิ่มหรืออัปเดต STOCK_CARD (กรณี INSERT ใหม่) - เช็ค LOTNO ด้วย
             console.log('📝 Managing STOCK_CARD...');
+            const lotNoForStock = LOT_NO || '-';
             const [stockCheck] = await connection.execute(
-                'SELECT * FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
-                [MYEAR, MONTHH, DRUG_CODE]
+                `SELECT * FROM STOCK_CARD 
+                 WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ? 
+                 AND ((LOTNO = ?) OR (LOTNO IS NULL AND ? = '-'))`,
+                [MYEAR, MONTHH, DRUG_CODE, lotNoForStock, lotNoForStock]
             );
 
             if (stockCheck.length > 0) {
+                // ✅ ถ้ามี LOTNO เดียวกัน ให้ UPDATE
                 await connection.execute(
                     `UPDATE STOCK_CARD SET 
                         REFNO = 'BEG',
                         UNIT_CODE1 = ?, 
                         BEG1 = ?,
                         BEG1_AMT = ?,
-                        UNIT_COST = ?
-                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
-                    [UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, MYEAR, MONTHH, DRUG_CODE]
+                        UNIT_COST = ?,
+                        LOTNO = ?,
+                        EXPIRE_DATE = ?
+                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ? 
+                    AND ((LOTNO = ?) OR (LOTNO IS NULL AND ? = '-'))`,
+                    [UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, lotNoForStock, EXPIRE_DATE || '-', MYEAR, MONTHH, DRUG_CODE, lotNoForStock, lotNoForStock]
                 );
-                console.log('✅ Updated STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST');
+                console.log('✅ Updated STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (same LOT)');
             } else {
+                // ✅ ถ้า LOTNO ต่างกัน ให้ INSERT ใหม่
                 await connection.execute(
                     `INSERT INTO STOCK_CARD (
                         REFNO, RDATE, TRDATE,
@@ -537,10 +559,10 @@ router.post('/', async (req, res) => {
                         MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1 || null,
                         QTY || 0, 0, 0, 0,
                         UNIT_PRICE || 0, AMT || 0, 0, 0, 0,
-                        LOT_NO || '-', EXPIRE_DATE || '-'
+                        lotNoForStock, EXPIRE_DATE || '-'
                     ]
                 );
-                console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST');
+                console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (new LOT)');
             }
         }
 
