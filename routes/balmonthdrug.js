@@ -624,15 +624,16 @@ router.post('/', async (req, res) => {
                 console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (new LOT)');
             }
             
-            // ✅ อัปเดต BAL_DRUG สำหรับกรณี INSERT BEG_MONTH_DRUG ใหม่ (ไม่ว่าจะเป็น UPDATE หรือ INSERT STOCK_CARD)
+            // ✅ อัปเดต BAL_DRUG สำหรับกรณี INSERT BEG_MONTH_DRUG ใหม่ (เช็คตาม LOT_NO)
             console.log('📝 Managing BAL_DRUG for new BEG_MONTH_DRUG...');
+            const lotNoForBal = LOT_NO || '-';
             const [existingBalForNew] = await connection.execute(
-                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
-                [DRUG_CODE]
+                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? AND (LOT_NO = ? OR (? = \'-\' AND LOT_NO IS NULL)) LIMIT 1',
+                [DRUG_CODE, lotNoForBal, lotNoForBal]
             );
 
             if (existingBalForNew.length > 0) {
-                // ✅ มีข้อมูลอยู่แล้ว → บวกค่าใหม่เข้าไป
+                // ✅ มีข้อมูลอยู่แล้ว (LOT_NO เดียวกัน) → UPDATE
                 const oldQty = parseFloat(existingBalForNew[0].QTY) || 0;
                 const oldAmt = parseFloat(existingBalForNew[0].AMT) || 0;
                 const newQty = oldQty + (parseFloat(QTY) || 0);
@@ -649,37 +650,40 @@ router.post('/', async (req, res) => {
                         LOT_NO = ?,
                         EXPIRE_DATE = ?,
                         TEXPIRE_DATE = ?
-                    WHERE DRUG_CODE = ?
-                    ORDER BY AMT DESC
-                    LIMIT 1`,
+                    WHERE DRUG_CODE = ? AND (LOT_NO = ? OR (? = '-' AND LOT_NO IS NULL))`,
                     [
                         newQty,
                         newAmt,
                         UNIT_PRICE || 0,
                         UNIT_CODE1 || null,
-                        '-',
-                        '-',
-                        '-',
-                        DRUG_CODE
+                        lotNoForBal,
+                        EXPIRE_DATE || '-',
+                        EXPIRE_DATE || '-',
+                        DRUG_CODE,
+                        lotNoForBal,
+                        lotNoForBal
                     ]
                 );
-                console.log('✅ Updated BAL_DRUG (added new BEG_MONTH_DRUG values)');
+                console.log('✅ Updated BAL_DRUG (added new BEG_MONTH_DRUG values, same LOT)');
             } else {
-                // ✅ ไม่มีข้อมูล → INSERT ใหม่
+                // ✅ ไม่มีข้อมูล (LOT_NO ต่างกัน) → INSERT ใหม่
                 await connection.execute(
                     `INSERT INTO BAL_DRUG (
                         DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
                         UNIT_CODE1, QTY, UNIT_PRICE, AMT
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
-                        DRUG_CODE, '-', '-', '-',
+                        DRUG_CODE,
+                        lotNoForBal,
+                        EXPIRE_DATE || '-',
+                        EXPIRE_DATE || '-',
                         UNIT_CODE1 || null,
                         parseFloat(QTY) || 0,
                         UNIT_PRICE || 0,
                         parseFloat(AMT) || 0
                     ]
                 );
-                console.log('✅ Inserted new record into BAL_DRUG (new BEG_MONTH_DRUG)');
+                console.log('✅ Inserted new record into BAL_DRUG (new BEG_MONTH_DRUG, new LOT)');
             }
         }
 
