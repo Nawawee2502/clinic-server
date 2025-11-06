@@ -623,21 +623,18 @@ router.post('/', async (req, res) => {
                 );
                 console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (new LOT)');
             }
-        }
-
-        // 3. ** ✅ UPDATE BAL_DRUG ถ้ายังไม่ได้ update ไปแล้ว (กรณี INSERT ใหม่) **
-        if (!isUpdate) {
-            console.log('📝 Managing BAL_DRUG...');
-
-            const [existingBal] = await connection.execute(
+            
+            // ✅ อัปเดต BAL_DRUG สำหรับกรณี INSERT BEG_MONTH_DRUG ใหม่ (ไม่ว่าจะเป็น UPDATE หรือ INSERT STOCK_CARD)
+            console.log('📝 Managing BAL_DRUG for new BEG_MONTH_DRUG...');
+            const [existingBalForNew] = await connection.execute(
                 'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
                 [DRUG_CODE]
             );
 
-            if (existingBal.length > 0) {
-                // มีข้อมูลอยู่แล้ว → UPDATE
-                const oldQty = parseFloat(existingBal[0].QTY) || 0;
-                const oldAmt = parseFloat(existingBal[0].AMT) || 0;
+            if (existingBalForNew.length > 0) {
+                // ✅ มีข้อมูลอยู่แล้ว → บวกค่าใหม่เข้าไป
+                const oldQty = parseFloat(existingBalForNew[0].QTY) || 0;
+                const oldAmt = parseFloat(existingBalForNew[0].AMT) || 0;
                 const newQty = oldQty + (parseFloat(QTY) || 0);
                 const newAmt = oldAmt + (parseFloat(AMT) || 0);
 
@@ -666,9 +663,9 @@ router.post('/', async (req, res) => {
                         DRUG_CODE
                     ]
                 );
-                console.log('✅ Updated BAL_DRUG with calculated AMT');
+                console.log('✅ Updated BAL_DRUG (added new BEG_MONTH_DRUG values)');
             } else {
-                // ไม่มีข้อมูล → INSERT ใหม่
+                // ✅ ไม่มีข้อมูล → INSERT ใหม่
                 await connection.execute(
                     `INSERT INTO BAL_DRUG (
                         DRUG_CODE, LOT_NO, EXPIRE_DATE, TEXPIRE_DATE,
@@ -682,7 +679,7 @@ router.post('/', async (req, res) => {
                         parseFloat(AMT) || 0
                     ]
                 );
-                console.log('✅ Inserted new record into BAL_DRUG');
+                console.log('✅ Inserted new record into BAL_DRUG (new BEG_MONTH_DRUG)');
             }
         }
 
