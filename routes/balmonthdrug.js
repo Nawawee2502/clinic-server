@@ -401,6 +401,47 @@ router.post('/', async (req, res) => {
             );
             console.log('✅ Updated BEG_MONTH_DRUG');
             
+            // ✅ อัปเดต STOCK_CARD เมื่อ UPDATE
+            const [stockCheck] = await connection.execute(
+                'SELECT * FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
+                [MYEAR, MONTHH, DRUG_CODE]
+            );
+
+            if (stockCheck.length > 0) {
+                await connection.execute(
+                    `UPDATE STOCK_CARD SET 
+                        REFNO = 'BEG',
+                        UNIT_CODE1 = ?, 
+                        BEG1 = ?,
+                        BEG1_AMT = ?,
+                        UNIT_COST = ?
+                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
+                    [UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, MYEAR, MONTHH, DRUG_CODE]
+                );
+                console.log('✅ Updated STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST');
+            } else {
+                // ถ้ายังไม่มี STOCK_CARD ให้ INSERT
+                await connection.execute(
+                    `INSERT INTO STOCK_CARD (
+                        REFNO, RDATE, TRDATE,
+                        MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
+                        BEG1, IN1, OUT1, UPD1,
+                        UNIT_COST, BEG1_AMT, IN1_AMT, OUT1_AMT, UPD1_AMT,
+                        LOTNO, EXPIRE_DATE
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        'BEG',
+                        new Date().toISOString().slice(0, 10),
+                        new Date().toISOString().slice(0, 10),
+                        MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1 || null,
+                        QTY || 0, 0, 0, 0,
+                        UNIT_PRICE || 0, AMT || 0, 0, 0, 0,
+                        LOT_NO || '-', EXPIRE_DATE || '-'
+                    ]
+                );
+                console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST');
+            }
+            
             // ✅ คำนวณ BAL_DRUG โดยลบค่าเดิมก่อน แล้วบวกค่าใหม่
             const [existingBal] = await connection.execute(
                 'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
@@ -460,47 +501,47 @@ router.post('/', async (req, res) => {
                 ]
             );
             console.log('✅ Inserted into BEG_MONTH_DRUG');
-        }
-
-        // 2. เพิ่มหรืออัปเดต STOCK_CARD
-        console.log('📝 Managing STOCK_CARD...');
-        const [stockCheck] = await connection.execute(
-            'SELECT * FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
-            [MYEAR, MONTHH, DRUG_CODE]
-        );
-
-        if (stockCheck.length > 0) {
-            await connection.execute(
-                `UPDATE STOCK_CARD SET 
-                    REFNO = 'BEG',
-                    UNIT_CODE1 = ?, 
-                    BEG1 = ?,
-                    BEG1_AMT = ?,
-                    UNIT_COST = ?
-                WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
-                [UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, MYEAR, MONTHH, DRUG_CODE]
+            
+            // 2. เพิ่มหรืออัปเดต STOCK_CARD (กรณี INSERT ใหม่)
+            console.log('📝 Managing STOCK_CARD...');
+            const [stockCheck] = await connection.execute(
+                'SELECT * FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
+                [MYEAR, MONTHH, DRUG_CODE]
             );
-            console.log('✅ Updated STOCK_CARD with REFNO = BEG and BEG1_AMT');
-        } else {
-            await connection.execute(
-                `INSERT INTO STOCK_CARD (
-                    REFNO, RDATE, TRDATE,
-                    MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
-                    BEG1, IN1, OUT1, UPD1,
-                    UNIT_COST, BEG1_AMT, IN1_AMT, OUT1_AMT, UPD1_AMT,
-                    LOTNO, EXPIRE_DATE
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    'BEG',
-                    new Date().toISOString().slice(0, 10),
-                    new Date().toISOString().slice(0, 10),
-                    MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1 || null,
-                    QTY || 0, 0, 0, 0,
-                    UNIT_PRICE || 0, AMT || 0, 0, 0, 0,
-                    '-', '-'
-                ]
-            );
-            console.log('✅ Inserted into STOCK_CARD with REFNO = BEG and BEG1_AMT');
+
+            if (stockCheck.length > 0) {
+                await connection.execute(
+                    `UPDATE STOCK_CARD SET 
+                        REFNO = 'BEG',
+                        UNIT_CODE1 = ?, 
+                        BEG1 = ?,
+                        BEG1_AMT = ?,
+                        UNIT_COST = ?
+                    WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
+                    [UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, MYEAR, MONTHH, DRUG_CODE]
+                );
+                console.log('✅ Updated STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST');
+            } else {
+                await connection.execute(
+                    `INSERT INTO STOCK_CARD (
+                        REFNO, RDATE, TRDATE,
+                        MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
+                        BEG1, IN1, OUT1, UPD1,
+                        UNIT_COST, BEG1_AMT, IN1_AMT, OUT1_AMT, UPD1_AMT,
+                        LOTNO, EXPIRE_DATE
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        'BEG',
+                        new Date().toISOString().slice(0, 10),
+                        new Date().toISOString().slice(0, 10),
+                        MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1 || null,
+                        QTY || 0, 0, 0, 0,
+                        UNIT_PRICE || 0, AMT || 0, 0, 0, 0,
+                        LOT_NO || '-', EXPIRE_DATE || '-'
+                    ]
+                );
+                console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST');
+            }
         }
 
         // 3. ** ✅ UPDATE BAL_DRUG ถ้ายังไม่ได้ update ไปแล้ว (กรณี INSERT ใหม่) **
