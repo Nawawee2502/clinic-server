@@ -866,41 +866,37 @@ router.delete('/:year/:month/:drugCode', async (req, res) => {
         await connection.beginTransaction();
 
         const { year, month, drugCode } = req.params;
+        const { lotNo, isLotNoNull } = req.query;
 
-        console.log('🗑️ Deleting:', { year, month, drugCode });
+        const trimmedLotNo = typeof lotNo === 'string' ? lotNo.trim() : null;
+        const isLotNull = isLotNoNull === 'true';
 
-        // ดึงข้อมูลเพื่อคืนค่าใน BAL_DRUG
-        const [oldData] = await connection.execute(
-            'SELECT QTY, AMT FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
-            [year, month, drugCode]
-        );
-
-        if (oldData.length > 0) {
-            const [existingBal] = await connection.execute(
-                'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
-                [drugCode]
-            );
-
-            if (existingBal.length > 0) {
-                const oldQty = parseFloat(existingBal[0].QTY) || 0;
-                const oldAmt = parseFloat(existingBal[0].AMT) || 0;
-                const newQty = oldQty - (parseFloat(oldData[0].QTY) || 0);
-                const newAmt = oldAmt - (parseFloat(oldData[0].AMT) || 0);
-
-                await connection.execute(
-                    'UPDATE BAL_DRUG SET QTY = ?, AMT = ? WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
-                    [newQty, newAmt, drugCode]
-                );
-            }
+        if (!isLotNull && (!trimmedLotNo || trimmedLotNo.length === 0)) {
+            await connection.rollback();
+            return res.status(400).json({
+                success: false,
+                message: 'กรุณาระบุ LOT_NO สำหรับการลบข้อมูล'
+            });
         }
 
-        // 1. ลบจาก BEG_MONTH_DRUG
-        const [result] = await connection.execute(
-            'DELETE FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
-            [year, month, drugCode]
+        console.log('🗑️ Deleting:', { year, month, drugCode, lotNo: trimmedLotNo, isLotNull });
+
+        const baseClause = 'MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?';
+        const baseParams = [year, month, drugCode];
+        const lotCondition = isLotNull
+            ? ' AND (LOT_NO IS NULL OR LOT_NO = \'\')'
+            : ' AND LOT_NO = ?';
+
+        const selectParams = isLotNull
+            ? [...baseParams]
+            : [...baseParams, trimmedLotNo];
+
+        const [oldData] = await connection.execute(
+            `SELECT QTY, AMT, LOT_NO FROM BEG_MONTH_DRUG WHERE ${baseClause}${lotCondition}`,
+            selectParams
         );
 
-        if (result.affectedRows === 0) {
+        if (oldData.length === 0) {
             await connection.rollback();
             return res.status(404).json({
                 success: false,
@@ -908,19 +904,82 @@ router.delete('/:year/:month/:drugCode', async (req, res) => {
             });
         }
 
-        // 2. ลบจาก STOCK_CARD
-        await connection.execute(
-            'DELETE FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
-            [year, month, drugCode]
+        const record = oldData[0];
+        const qtyToRemove = parseFloat(record.QTY) || 0;
+        const amtToRemove = parseFloat(record.AMT) || 0;
+        const recordLotNo = record.LOT_NO && record.LOT_NO.trim() !== '' ? record.LOT_NO.trim() : null;
+
+        const lotNoForBal = recordLotNo || '-';
+        let balSelectQuery = 'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ?';
+        const balSelectParams = [drugCode];
+
+        if (lotNoForBal === '-') {
+            balSelectQuery += " AND (LOT_NO IS NULL OR LOT_NO = '-')";
+        } else {
+            balSelectQuery += ' AND LOT_NO = ?';
+            balSelectParams.push(lotNoForBal);
+        }
+
+        balSelectQuery += ' ORDER BY AMT DESC LIMIT 1';
+
+        const [existingBal] = await connection.execute(balSelectQuery, balSelectParams);
+
+        if (existingBal.length > 0) {
+            const oldQty = parseFloat(existingBal[0].QTY) || 0;
+            const oldAmt = parseFloat(existingBal[0].AMT) || 0;
+            const newQty = oldQty - qtyToRemove;
+            const newAmt = oldAmt - amtToRemove;
+
+            let balUpdateQuery = 'UPDATE BAL_DRUG SET QTY = ?, AMT = ? WHERE DRUG_CODE = ?';
+            const balUpdateParams = [newQty, newAmt, drugCode];
+
+            if (lotNoForBal === '-') {
+                balUpdateQuery += " AND (LOT_NO IS NULL OR LOT_NO = '-')";
+            } else {
+                balUpdateQuery += ' AND LOT_NO = ?';
+                balUpdateParams.push(lotNoForBal);
+            }
+
+            balUpdateQuery += ' ORDER BY AMT DESC LIMIT 1';
+
+            await connection.execute(balUpdateQuery, balUpdateParams);
+        }
+
+        const deleteParams = [...selectParams];
+        const [deleteResult] = await connection.execute(
+            `DELETE FROM BEG_MONTH_DRUG WHERE ${baseClause}${lotCondition}`,
+            deleteParams
         );
+
+        if (deleteResult.affectedRows === 0) {
+            await connection.rollback();
+            return res.status(404).json({
+                success: false,
+                message: 'ไม่พบข้อมูลยอดยกมาที่ต้องการลบ'
+            });
+        }
+
+        const lotNoForStock = recordLotNo || '-';
+        let deleteStockQuery = 'DELETE FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?';
+        const deleteStockParams = [year, month, drugCode];
+
+        if (lotNoForStock === '-') {
+            deleteStockQuery += " AND (LOTNO IS NULL OR LOTNO = '-' OR LOTNO = '')";
+        } else {
+            deleteStockQuery += ' AND LOTNO = ?';
+            deleteStockParams.push(lotNoForStock);
+        }
+
+        await connection.execute(deleteStockQuery, deleteStockParams);
 
         await connection.commit();
 
-        console.log('✅ Balance record deleted successfully from 3 tables');
+        console.log('✅ Balance record deleted successfully from 3 tables', { lotNo: recordLotNo });
 
         res.json({
             success: true,
-            message: 'ลบข้อมูลยอดยกมาสำเร็จจากทั้ง 3 ตาราง'
+            message: 'ลบข้อมูลยอดยกมาสำเร็จจากทั้ง 3 ตาราง',
+            lotNo: recordLotNo
         });
     } catch (error) {
         await connection.rollback();
