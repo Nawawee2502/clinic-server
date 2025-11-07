@@ -39,13 +39,19 @@ router.get('/', async (req, res) => {
         const params = [];
 
         if (year) {
-            conditions.push('s.MYEAR = ?');
-            params.push(year);
+            const parsedYear = parseInt(year, 10);
+            if (!Number.isNaN(parsedYear)) {
+                conditions.push('s.MYEAR = ?');
+                params.push(parsedYear);
+            }
         }
 
         if (month) {
-            conditions.push('s.MONTHH = ?');
-            params.push(month);
+            const parsedMonth = parseInt(month, 10);
+            if (!Number.isNaN(parsedMonth)) {
+                conditions.push('s.MONTHH = ?');
+                params.push(parsedMonth);
+            }
         }
 
         if (drugCode) {
@@ -62,7 +68,7 @@ router.get('/', async (req, res) => {
             query += ' WHERE ' + conditions.join(' AND ');
         }
 
-        query += ' ORDER BY s.MYEAR DESC, s.MONTHH DESC, s.REFNO DESC, s.DRUG_CODE';
+        query += ' ORDER BY s.DRUG_CODE, s.RDATE, s.REFNO';
 
         console.log('📝 Executing query:', query);
         console.log('📝 With params:', params);
