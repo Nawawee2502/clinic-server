@@ -1,6 +1,17 @@
 const express = require('express');
 const router = express.Router();
 
+const getFirstDayOfMonth = (year, month) => {
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10);
+
+    if (Number.isNaN(y) || Number.isNaN(m)) {
+        return new Date().toISOString().slice(0, 10);
+    }
+
+    return new Date(Date.UTC(y, m - 1, 1)).toISOString().slice(0, 10);
+};
+
 // GET all balance records with optional filters
 router.get('/', async (req, res) => {
     try {
@@ -341,6 +352,8 @@ router.post('/', async (req, res) => {
 
         console.log('📝 Received data:', req.body);
 
+        const periodDate = getFirstDayOfMonth(MYEAR, MONTHH);
+
         if (!MYEAR || !MONTHH || !DRUG_CODE) {
             await connection.rollback();
             return res.status(400).json({
@@ -423,6 +436,8 @@ router.post('/', async (req, res) => {
                 await connection.execute(
                     `UPDATE STOCK_CARD SET 
                         REFNO = 'BEG',
+                        RDATE = ?,
+                        TRDATE = ?,
                         UNIT_CODE1 = ?, 
                         BEG1 = ?,
                         BEG1_AMT = ?,
@@ -431,7 +446,7 @@ router.post('/', async (req, res) => {
                         EXPIRE_DATE = ?
                     WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ? 
                     AND ((LOTNO = ?) OR (LOTNO IS NULL AND ? = '-'))`,
-                    [UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, lotNoForStock, EXPIRE_DATE || '-', MYEAR, MONTHH, DRUG_CODE, lotNoForStock, lotNoForStock]
+                    [periodDate, periodDate, UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, lotNoForStock, EXPIRE_DATE || '-', MYEAR, MONTHH, DRUG_CODE, lotNoForStock, lotNoForStock]
                 );
                 console.log('✅ Updated STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (same LOT)');
             } else {
@@ -446,8 +461,8 @@ router.post('/', async (req, res) => {
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         'BEG',
-                        new Date().toISOString().slice(0, 10),
-                        new Date().toISOString().slice(0, 10),
+                        periodDate,
+                        periodDate,
                         MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1 || null,
                         QTY || 0, 0, 0, 0,
                         UNIT_PRICE || 0, AMT || 0, 0, 0, 0,
@@ -590,6 +605,8 @@ router.post('/', async (req, res) => {
                 await connection.execute(
                     `UPDATE STOCK_CARD SET 
                         REFNO = 'BEG',
+                        RDATE = ?,
+                        TRDATE = ?,
                         UNIT_CODE1 = ?, 
                         BEG1 = ?,
                         BEG1_AMT = ?,
@@ -598,7 +615,7 @@ router.post('/', async (req, res) => {
                         EXPIRE_DATE = ?
                     WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ? 
                     AND ((LOTNO = ?) OR (LOTNO IS NULL AND ? = '-'))`,
-                    [UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, lotNoForStock, EXPIRE_DATE || '-', MYEAR, MONTHH, DRUG_CODE, lotNoForStock, lotNoForStock]
+                    [periodDate, periodDate, UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, lotNoForStock, EXPIRE_DATE || '-', MYEAR, MONTHH, DRUG_CODE, lotNoForStock, lotNoForStock]
                 );
                 console.log('✅ Updated STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (same LOT)');
             } else {
@@ -613,8 +630,8 @@ router.post('/', async (req, res) => {
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         'BEG',
-                        new Date().toISOString().slice(0, 10),
-                        new Date().toISOString().slice(0, 10),
+                        periodDate,
+                        periodDate,
                         MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1 || null,
                         QTY || 0, 0, 0, 0,
                         UNIT_PRICE || 0, AMT || 0, 0, 0, 0,
@@ -737,6 +754,8 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
 
         console.log('📝 Updating:', { year, month, drugCode, UNIT_CODE1, QTY, UNIT_PRICE, AMT });
 
+        const periodDate = getFirstDayOfMonth(year, month);
+
         // ดึงข้อมูลเดิมเพื่อคืนค่าใน BAL_DRUG ก่อน
         const [oldData] = await connection.execute(
             'SELECT QTY, AMT FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?',
@@ -788,12 +807,14 @@ router.put('/:year/:month/:drugCode', async (req, res) => {
         await connection.execute(
             `UPDATE STOCK_CARD SET 
                 REFNO = 'BEG',
+                RDATE = ?,
+                TRDATE = ?,
                 UNIT_CODE1 = ?, 
                 BEG1 = ?,
                 BEG1_AMT = ?,
                 UNIT_COST = ?
             WHERE MYEAR = ? AND MONTHH = ? AND DRUG_CODE = ?`,
-            [UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, year, month, drugCode]
+            [periodDate, periodDate, UNIT_CODE1 || null, QTY || 0, AMT || 0, UNIT_PRICE || 0, year, month, drugCode]
         );
         console.log('✅ Updated STOCK_CARD with REFNO = BEG and BEG1_AMT');
 
