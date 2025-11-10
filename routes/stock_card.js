@@ -5,7 +5,7 @@ const router = express.Router();
 router.get('/', async (req, res) => {
     try {
         const pool = require('../config/db');
-        const { year, month, drugCode, refno } = req.query;
+        const { year, month, drugCode, refno, lotNo } = req.query;
 
         let query = `
             SELECT 
@@ -62,6 +62,15 @@ router.get('/', async (req, res) => {
         if (refno) {
             conditions.push('s.REFNO = ?');
             params.push(refno);
+        }
+
+        if (lotNo) {
+            if (lotNo === '-' || lotNo.toLowerCase() === 'null') {
+                conditions.push('(s.LOTNO IS NULL OR s.LOTNO = \'-\' OR s.LOTNO = \'\')');
+            } else {
+                conditions.push('s.LOTNO = ?');
+                params.push(lotNo);
+            }
         }
 
         if (conditions.length > 0) {
