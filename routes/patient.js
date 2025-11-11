@@ -318,12 +318,12 @@ router.post('/', async (req, res) => {
         }
 
         let hnToUse = HNCODE ? HNCODE.trim() : '';
-        let attempts = 0;
-        let lastDuplicateError = null;
 
-        while (attempts < 5) {
-            attempts += 1;
-
+        // 🔁 พยายามสร้าง HN ใหม่จนกว่าจะสำเร็จ (ปล่อยให้ loop จัดการกรณีซ้ำ)
+        // ใช้ sequence บนฐานข้อมูลเพื่อป้องกันปัญหา race condition
+        // หากเกิดข้อผิดพลาดอื่นที่ไม่ใช่รหัสซ้ำ จะ throw ออกไปให้ catch ด้านนอกจัดการ
+        // (ป้องกันการสร้าง HN ซ้ำแบบถาวร)
+        while (true) {
             if (hnToUse) {
                 const [existingHNRows] = await connection.query(
                     `
@@ -377,20 +377,12 @@ router.post('/', async (req, res) => {
                 });
             } catch (error) {
                 if (error.code === 'ER_DUP_ENTRY') {
-                    lastDuplicateError = error;
                     hnToUse = '';
                     continue;
                 }
                 throw error;
             }
         }
-
-        await connection.rollback();
-        return res.status(500).json({
-            success: false,
-            message: 'ไม่สามารถสร้างรหัส HN ที่ไม่ซ้ำได้',
-            error: lastDuplicateError ? lastDuplicateError.message : undefined
-        });
     } catch (error) {
         if (connection) {
             try {
