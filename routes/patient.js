@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const dbPoolPromise = require('../config/db');
+const { ensureHNSequenceInfrastructure, generateNextHN } = require('../utils/hnSequence');
 
 // GET all patients
 router.get('/', async (req, res) => {
@@ -268,8 +270,13 @@ router.get('/stats/basic', async (req, res) => {
 
 // POST create new patient
 router.post('/', async (req, res) => {
+    let connection;
     try {
-        const db = await require('../config/db');
+        await ensureHNSequenceInfrastructure();
+        const pool = await dbPoolPromise;
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
         const {
             HNCODE, IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
             BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
@@ -279,61 +286,136 @@ router.post('/', async (req, res) => {
             SOCIAL_CARD, UCS_CARD
         } = req.body;
 
-        if (!HNCODE) {
-            return res.status(400).json({
-                success: false,
-                message: 'กรุณาระบุรหัส HN'
-            });
-        }
-
         if (!NAME1) {
+            await connection.rollback();
             return res.status(400).json({
                 success: false,
                 message: 'กรุณาระบุชื่อ'
             });
         }
 
-        const [result] = await db.execute(`
-      INSERT INTO patient1 (
-        HNCODE, IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
-        BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
-        WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
-        CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
-        ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-        SOCIAL_CARD, UCS_CARD
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-            HNCODE, IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
-            BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
-            WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
-            CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
-            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            SOCIAL_CARD, UCS_CARD
-        ]);
+        const normalizedIdNo = IDNO ? IDNO.trim() : null;
+        if (normalizedIdNo) {
+            const [idRows] = await connection.query(
+                `
+                SELECT HNCODE, NAME1, SURNAME 
+                FROM patient1 
+                WHERE IDNO = ? 
+                LIMIT 1 FOR UPDATE
+                `,
+                [normalizedIdNo]
+            );
 
-        res.status(201).json({
-            success: true,
-            message: 'เพิ่มข้อมูลผู้ป่วยสำเร็จ',
-            data: {
-                HNCODE,
-                NAME1,
-                SURNAME,
-                fullName: `${PRENAME || ''} ${NAME1} ${SURNAME || ''}`.trim()
+            if (idRows.length > 0) {
+                await connection.rollback();
+                return res.status(409).json({
+                    success: false,
+                    code: 'DUPLICATE_IDNO',
+                    message: 'เลขบัตรประชาชนนี้มีอยู่แล้วในระบบ',
+                    data: idRows[0]
+                });
             }
+        }
+
+        let hnToUse = HNCODE ? HNCODE.trim() : '';
+        let attempts = 0;
+        let lastDuplicateError = null;
+
+        while (attempts < 5) {
+            attempts += 1;
+
+            if (hnToUse) {
+                const [existingHNRows] = await connection.query(
+                    `
+                    SELECT HNCODE 
+                    FROM patient1 
+                    WHERE HNCODE = ? 
+                    LIMIT 1 FOR UPDATE
+                    `,
+                    [hnToUse]
+                );
+
+                if (existingHNRows.length > 0) {
+                    hnToUse = '';
+                }
+            }
+
+            if (!hnToUse) {
+                hnToUse = await generateNextHN(connection);
+            }
+
+            try {
+                await connection.query(`
+            INSERT INTO patient1 (
+              HNCODE, IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
+              BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
+              WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
+              CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
+              ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
+              SOCIAL_CARD, UCS_CARD
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+                    hnToUse, IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
+                    BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
+                    WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
+                    CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
+                    ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
+                    SOCIAL_CARD, UCS_CARD
+                ]);
+
+                await connection.commit();
+
+                return res.status(201).json({
+                    success: true,
+                    message: 'เพิ่มข้อมูลผู้ป่วยสำเร็จ',
+                    data: {
+                        HNCODE: hnToUse,
+                        NAME1,
+                        SURNAME,
+                        fullName: `${PRENAME || ''} ${NAME1} ${SURNAME || ''}`.trim()
+                    }
+                });
+            } catch (error) {
+                if (error.code === 'ER_DUP_ENTRY') {
+                    lastDuplicateError = error;
+                    hnToUse = '';
+                    continue;
+                }
+                throw error;
+            }
+        }
+
+        await connection.rollback();
+        return res.status(500).json({
+            success: false,
+            message: 'ไม่สามารถสร้างรหัส HN ที่ไม่ซ้ำได้',
+            error: lastDuplicateError ? lastDuplicateError.message : undefined
         });
     } catch (error) {
+        if (connection) {
+            try {
+                await connection.rollback();
+            } catch (rollbackError) {
+                console.error('Rollback failed:', rollbackError);
+            }
+        }
+
         console.error('Error creating patient:', error);
         if (error.code === 'ER_DUP_ENTRY') {
-            res.status(409).json({
+            return res.status(409).json({
                 success: false,
                 message: 'รหัส HN นี้มีอยู่แล้ว'
             });
-        } else {
-            res.status(500).json({
-                success: false,
-                message: 'เกิดข้อผิดพลาดในการเพิ่มข้อมูลผู้ป่วย',
-                error: error.message
-            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการเพิ่มข้อมูลผู้ป่วย',
+            error: error.message
+        });
+    } finally {
+        if (connection) {
+            connection.release();
         }
     }
 });
