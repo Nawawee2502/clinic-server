@@ -3,100 +3,6 @@ const router = express.Router();
 const dbPoolPromise = require('../config/db');
 const { ensureHNSequenceInfrastructure, generateNextHN } = require('../utils/hnSequence');
 
-const safeString = (value, defaultValue = '') => {
-    if (value === undefined || value === null) {
-        return defaultValue;
-    }
-
-    const trimmed = String(value).trim();
-    return trimmed === '' ? defaultValue : trimmed;
-};
-
-const safeNumber = (value, defaultValue = 0) => {
-    if (value === undefined || value === null || value === '') {
-        return defaultValue;
-    }
-
-    const numberValue = Number(value);
-    return Number.isFinite(numberValue) ? numberValue : defaultValue;
-};
-
-const preparePatientInsertData = (data = {}) => {
-    const defaults = {
-        HNCODE: '',
-        IDNO: '',
-        PRENAME: '',
-        NAME1: '',
-        SURNAME: '',
-        SEX: '',
-        BDATE: '',
-        AGE: 0,
-        BLOOD_GROUP1: '',
-        OCCUPATION1: '',
-        ORIGIN1: 'ไทย',
-        NATIONAL1: 'ไทย',
-        RELIGION1: 'พุทธ',
-        STATUS1: 'โสด',
-        WEIGHT1: 0,
-        HIGH1: 0,
-        CARD_ADDR1: '',
-        CARD_TUMBOL_CODE: '',
-        CARD_AMPHER_CODE: '',
-        CARD_PROVINCE_CODE: '',
-        ADDR1: '',
-        TUMBOL_CODE: '',
-        AMPHER_CODE: '',
-        PROVINCE_CODE: '',
-        ZIPCODE: '',
-        TEL1: '',
-        EMAIL1: '',
-        DISEASE1: '',
-        DRUG_ALLERGY: '',
-        FOOD_ALLERGIES: '',
-        SOCIAL_CARD: 'N',
-        UCS_CARD: 'N'
-    };
-
-    const merged = { ...defaults, ...data };
-
-    return {
-        HNCODE: safeString(merged.HNCODE, ''),
-        IDNO: safeString(merged.IDNO, ''),
-        PRENAME: safeString(merged.PRENAME, ''),
-        NAME1: safeString(merged.NAME1, ''),
-        SURNAME: safeString(merged.SURNAME, ''),
-        SEX: safeString(merged.SEX, ''),
-        BDATE: safeString(merged.BDATE, ''),
-        AGE: safeNumber(merged.AGE, 0),
-        BLOOD_GROUP1: safeString(merged.BLOOD_GROUP1, ''),
-        OCCUPATION1: safeString(merged.OCCUPATION1, ''),
-        ORIGIN1: safeString(merged.ORIGIN1, 'ไทย'),
-        NATIONAL1: safeString(merged.NATIONAL1, 'ไทย'),
-        RELIGION1: safeString(merged.RELIGION1, 'พุทธ'),
-        STATUS1: safeString(merged.STATUS1, 'โสด'),
-        WEIGHT1: safeNumber(merged.WEIGHT1, 0),
-        HIGH1: safeNumber(merged.HIGH1, 0),
-        CARD_ADDR1: safeString(merged.CARD_ADDR1, ''),
-        CARD_TUMBOL_CODE: safeString(merged.CARD_TUMBOL_CODE, ''),
-        CARD_AMPHER_CODE: safeString(merged.CARD_AMPHER_CODE, ''),
-        CARD_PROVINCE_CODE: safeString(merged.CARD_PROVINCE_CODE, ''),
-        ADDR1: safeString(merged.useCardAddress ? merged.CARD_ADDR1 : merged.ADDR1, ''),
-        TUMBOL_CODE: safeString(merged.useCardAddress ? merged.CARD_TUMBOL_CODE : merged.TUMBOL_CODE, ''),
-        AMPHER_CODE: safeString(merged.useCardAddress ? merged.CARD_AMPHER_CODE : merged.AMPHER_CODE, ''),
-        PROVINCE_CODE: safeString(merged.useCardAddress ? merged.CARD_PROVINCE_CODE : merged.PROVINCE_CODE, ''),
-        ZIPCODE: safeString(merged.useCardAddress ? merged.CARD_ZIPCODE : merged.ZIPCODE, ''),
-        TEL1: safeString(merged.TEL1, ''),
-        EMAIL1: safeString(merged.EMAIL1, ''),
-        DISEASE1: safeString(merged.DISEASE1, ''),
-        DRUG_ALLERGY: safeString(merged.DRUG_ALLERGY, ''),
-        FOOD_ALLERGIES: safeString(merged.FOOD_ALLERGIES, ''),
-        SOCIAL_CARD: merged.SOCIAL_CARD === 'Y' ? 'Y' : 'N',
-        UCS_CARD: merged.UCS_CARD === 'Y' ? 'Y' : 'N',
-        CARD_ZIPCODE: safeString(merged.CARD_ZIPCODE, ''),
-        useCardAddress: !!merged.useCardAddress
-    };
-};
-
 // GET all patients
 router.get('/', async (req, res) => {
     try {
@@ -380,44 +286,15 @@ router.post('/', async (req, res) => {
             SOCIAL_CARD, UCS_CARD
         } = req.body;
 
-        const preparedData = preparePatientInsertData({
-            HNCODE,
-            IDNO,
-            PRENAME,
-            NAME1,
-            SURNAME,
-            SEX,
-            BDATE,
-            AGE,
-            BLOOD_GROUP1,
-            OCCUPATION1,
-            ORIGIN1,
-            NATIONAL1,
-            RELIGION1,
-            STATUS1,
-            WEIGHT1,
-            HIGH1,
-            CARD_ADDR1,
-            CARD_TUMBOL_CODE,
-            CARD_AMPHER_CODE,
-            CARD_PROVINCE_CODE,
-            ADDR1,
-            TUMBOL_CODE,
-            AMPHER_CODE,
-            PROVINCE_CODE,
-            ZIPCODE,
-            TEL1,
-            EMAIL1,
-            DISEASE1,
-            DRUG_ALLERGY,
-            FOOD_ALLERGIES,
-            SOCIAL_CARD,
-            UCS_CARD,
-            CARD_ZIPCODE: req.body.CARD_ZIPCODE,
-            useCardAddress: req.body.useCardAddress
-        });
+        if (!NAME1) {
+            await connection.rollback();
+            return res.status(400).json({
+                success: false,
+                message: 'กรุณาระบุชื่อ'
+            });
+        }
 
-        const normalizedIdNo = preparedData.IDNO ? preparedData.IDNO.trim() : null;
+        const normalizedIdNo = IDNO ? IDNO.trim() : null;
         if (normalizedIdNo) {
             const [idRows] = await connection.query(
                 `
@@ -440,7 +317,7 @@ router.post('/', async (req, res) => {
             }
         }
 
-        let hnToUse = preparedData.HNCODE ? preparedData.HNCODE.trim() : '';
+        let hnToUse = HNCODE ? HNCODE.trim() : '';
 
         // 🔁 พยายามสร้าง HN ใหม่จนกว่าจะสำเร็จ (ปล่อยให้ loop จัดการกรณีซ้ำ)
         // ใช้ sequence บนฐานข้อมูลเพื่อป้องกันปัญหา race condition
@@ -473,44 +350,17 @@ router.post('/', async (req, res) => {
               HNCODE, IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
               BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
               WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
-              CARD_PROVINCE_CODE, CARD_ZIPCODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
+              CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
               ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
               SOCIAL_CARD, UCS_CARD
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `, [
-                    hnToUse,
-                    preparedData.IDNO,
-                    preparedData.PRENAME,
-                    preparedData.NAME1,
-                    preparedData.SURNAME,
-                    preparedData.SEX,
-                    preparedData.BDATE,
-                    preparedData.AGE,
-                    preparedData.BLOOD_GROUP1,
-                    preparedData.OCCUPATION1,
-                    preparedData.ORIGIN1,
-                    preparedData.NATIONAL1,
-                    preparedData.RELIGION1,
-                    preparedData.STATUS1,
-                    preparedData.WEIGHT1,
-                    preparedData.HIGH1,
-                    preparedData.CARD_ADDR1,
-                    preparedData.CARD_TUMBOL_CODE,
-                    preparedData.CARD_AMPHER_CODE,
-                    preparedData.CARD_PROVINCE_CODE,
-                    preparedData.CARD_ZIPCODE,
-                    preparedData.ADDR1,
-                    preparedData.TUMBOL_CODE,
-                    preparedData.AMPHER_CODE,
-                    preparedData.PROVINCE_CODE,
-                    preparedData.ZIPCODE,
-                    preparedData.TEL1,
-                    preparedData.EMAIL1,
-                    preparedData.DISEASE1,
-                    preparedData.DRUG_ALLERGY,
-                    preparedData.FOOD_ALLERGIES,
-                    preparedData.SOCIAL_CARD,
-                    preparedData.UCS_CARD
+                    hnToUse, IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
+                    BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
+                    WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
+                    CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
+                    ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
+                    SOCIAL_CARD, UCS_CARD
                 ]);
 
                 await connection.commit();
