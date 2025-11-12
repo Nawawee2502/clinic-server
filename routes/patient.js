@@ -12,11 +12,17 @@ router.get('/', async (req, res) => {
         p.*,
         prov.PROVINCE_NAME,
         amp.AMPHER_NAME,
-        tumb.TUMBOL_NAME
+        tumb.TUMBOL_NAME,
+        card_prov.PROVINCE_NAME AS CARD_PROVINCE_NAME,
+        card_amp.AMPHER_NAME AS CARD_AMPHER_NAME,
+        card_tumb.TUMBOL_NAME AS CARD_TUMBOL_NAME
       FROM patient1 p
       LEFT JOIN province prov ON p.PROVINCE_CODE = prov.PROVINCE_CODE
       LEFT JOIN ampher amp ON p.AMPHER_CODE = amp.AMPHER_CODE
       LEFT JOIN tumbol tumb ON p.TUMBOL_CODE = tumb.TUMBOL_CODE
+      LEFT JOIN province card_prov ON p.CARD_PROVINCE_CODE = card_prov.PROVINCE_CODE
+      LEFT JOIN ampher card_amp ON p.CARD_AMPHER_CODE = card_amp.AMPHER_CODE
+      LEFT JOIN tumbol card_tumb ON p.CARD_TUMBOL_CODE = card_tumb.TUMBOL_CODE
       ORDER BY p.HNCODE
       LIMIT 100
     `);
@@ -283,7 +289,7 @@ router.post('/', async (req, res) => {
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
             ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            SOCIAL_CARD, UCS_CARD
+            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD
         } = req.body;
 
         if (!NAME1) {
@@ -352,15 +358,15 @@ router.post('/', async (req, res) => {
               WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
               CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
               ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-              SOCIAL_CARD, UCS_CARD
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              TREATMENT_CARD, SOCIAL_CARD, UCS_CARD
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `, [
                     hnToUse, IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
                     BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
                     WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
                     CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
                     ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-                    SOCIAL_CARD, UCS_CARD
+                    TREATMENT_CARD, SOCIAL_CARD, UCS_CARD
                 ]);
 
                 await connection.commit();
@@ -423,7 +429,7 @@ router.put('/:hn', async (req, res) => {
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
             ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            SOCIAL_CARD, UCS_CARD
+            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD
         } = req.body;
 
         const [result] = await db.execute(`
@@ -433,7 +439,7 @@ router.put('/:hn', async (req, res) => {
         WEIGHT1 = ?, HIGH1 = ?, CARD_ADDR1 = ?, CARD_TUMBOL_CODE = ?, CARD_AMPHER_CODE = ?,
         CARD_PROVINCE_CODE = ?, ADDR1 = ?, TUMBOL_CODE = ?, AMPHER_CODE = ?, PROVINCE_CODE = ?,
         ZIPCODE = ?, TEL1 = ?, EMAIL1 = ?, DISEASE1 = ?, DRUG_ALLERGY = ?, FOOD_ALLERGIES = ?,
-        SOCIAL_CARD = ?, UCS_CARD = ?
+        TREATMENT_CARD = ?, SOCIAL_CARD = ?, UCS_CARD = ?
       WHERE HNCODE = ?
     `, [
             IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
@@ -441,7 +447,7 @@ router.put('/:hn', async (req, res) => {
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
             ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            SOCIAL_CARD, UCS_CARD, hn
+            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, hn
         ]);
 
         if (result.affectedRows === 0) {
