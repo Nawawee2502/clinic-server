@@ -504,4 +504,92 @@ router.get('/period/:year/:month', async (req, res) => {
     }
 });
 
+// GET pay1 expenses with details joined (for Expenses report)
+router.get('/expenses/report', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { year, month, status = 'ทำงานอยู่' } = req.query;
+
+        let query = `
+            SELECT 
+                p.REFNO,
+                p.RDATE,
+                p.TRDATE,
+                p.MYEAR,
+                p.MONTHH,
+                p.NAME1,
+                p.STATUS,
+                p.TYPE_PAY,
+                p.BANK_NO,
+                pd.TYPE_PAY_CODE,
+                pd.DESCM1,
+                pd.AMT,
+                tp.type_pay_name
+            FROM PAY1 p
+            INNER JOIN PAY1_DT pd ON p.REFNO = pd.REFNO
+            LEFT JOIN TYPE_PAY tp ON pd.TYPE_PAY_CODE = tp.type_pay_code
+            WHERE p.STATUS = ?
+        `;
+        
+        const params = [status];
+
+        if (year) {
+            query += ` AND p.MYEAR = ?`;
+            params.push(year);
+        }
+
+        if (month) {
+            query += ` AND p.MONTHH = ?`;
+            params.push(parseInt(month));
+        }
+
+        query += ` ORDER BY pd.TYPE_PAY_CODE, p.REFNO`;
+
+        const [rows] = await db.execute(query, params);
+
+        // Group by REFNO to reconstruct the header structure
+        const groupedData = {};
+        rows.forEach(row => {
+            if (!groupedData[row.REFNO]) {
+                groupedData[row.REFNO] = {
+                    REFNO: row.REFNO,
+                    RDATE: row.RDATE,
+                    TRDATE: row.TRDATE,
+                    MYEAR: row.MYEAR,
+                    MONTHH: row.MONTHH,
+                    NAME1: row.NAME1,
+                    STATUS: row.STATUS,
+                    TYPE_PAY: row.TYPE_PAY,
+                    BANK_NO: row.BANK_NO,
+                    TOTAL: 0,
+                    details: []
+                };
+            }
+            groupedData[row.REFNO].details.push({
+                TYPE_PAY_CODE: row.TYPE_PAY_CODE,
+                DESCM1: row.DESCM1,
+                AMT: parseFloat(row.AMT) || 0,
+                TYPE_PAY_NAME: row.type_pay_name
+            });
+            groupedData[row.REFNO].TOTAL += parseFloat(row.AMT) || 0;
+        });
+
+        // Convert to array format
+        const result = Object.values(groupedData);
+
+        res.json({
+            success: true,
+            data: result,
+            count: result.length
+        });
+    } catch (error) {
+        console.error('Error fetching pay1 expenses report:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายจ่าย',
+            error: error.message
+        });
+    }
+});
+
 module.exports = router;
