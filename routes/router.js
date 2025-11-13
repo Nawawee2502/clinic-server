@@ -22,6 +22,7 @@ const userRoutes = require('./users');
 const clinicOrgRoutes = require('./clinic-org');
 const bankRoutes = require('./bank');
 const bookBankRoutes = require('./book-bank');
+const roleRoutes = require('./role');
 const typepayRoutes = require('./typepay');
 const typeincomeRoutes = require('./typeincome');
 const supplierRoutes = require('./supplier');
@@ -60,6 +61,7 @@ router.get('/test', (req, res) => {
         endpoints_available: {
             location: ['provinces', 'amphers', 'tumbols'],
             patient_staff: ['patients', 'employees'],
+            user_management: ['users', 'roles'],
             medical: ['drugs', 'procedures', 'diagnosis', 'icd10'],
             testing: ['lab', 'radiological', 'ix'],
             treatment: ['treatments'],
@@ -125,6 +127,13 @@ router.get('/docs', (req, res) => {
             'POST /employees': 'Create new employee',
             'PUT /employees/:code': 'Update employee',
             'DELETE /employees/:code': 'Delete employee',
+
+            // Role Management APIs
+            'GET /roles': 'Get all roles (admin only)',
+            'GET /roles/:roleCode': 'Get role by code',
+            'POST /roles': 'Create new role (admin only)',
+            'PUT /roles/:roleCode': 'Update role (admin only)',
+            'DELETE /roles/:roleCode': 'Delete role (admin only)',
 
             // Medical Resources APIs
             'GET /drugs': 'Get all drugs (paginated)',
@@ -397,6 +406,7 @@ router.use('/queue', queueRoutes);
 // User & Organization APIs
 router.use('/users', userRoutes);
 router.use('/clinic-org', clinicOrgRoutes);
+router.use('/roles', roleRoutes);
 
 // Financial APIs
 router.use('/bank', bankRoutes);
