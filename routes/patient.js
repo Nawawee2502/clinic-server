@@ -479,30 +479,140 @@ router.put('/:hn', async (req, res) => {
 
 // DELETE patient
 router.delete('/:hn', async (req, res) => {
+    const db = await require('../config/db');
+    let connection = null;
+
     try {
-        const db = await require('../config/db');
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
         const { hn } = req.params;
 
-        const [result] = await db.execute('DELETE FROM patient1 WHERE HNCODE = ?', [hn]);
+        // ตรวจสอบว่ามีข้อมูลผู้ป่วยหรือไม่
+        const [patientCheck] = await connection.execute(
+            'SELECT HNCODE FROM patient1 WHERE HNCODE = ?',
+            [hn]
+        );
 
-        if (result.affectedRows === 0) {
+        if (patientCheck.length === 0) {
+            await connection.rollback();
             return res.status(404).json({
                 success: false,
                 message: 'ไม่พบข้อมูลผู้ป่วยที่ต้องการลบ'
             });
         }
 
+        // ดึง VNO ทั้งหมดที่เกี่ยวข้องกับ HN นี้
+        const [treatments] = await connection.execute(
+            'SELECT VNO FROM TREATMENT1 WHERE HNNO = ?',
+            [hn]
+        );
+
+        const vnoList = treatments.map(t => t.VNO);
+        const treatmentCount = vnoList.length;
+
+        // นับจำนวน DAILY_QUEUE ที่เกี่ยวข้อง
+        const [queueCount] = await connection.execute(
+            'SELECT COUNT(*) as count FROM DAILY_QUEUE WHERE HNCODE = ?',
+            [hn]
+        );
+        const queueCountNum = queueCount[0]?.count || 0;
+
+        // นับจำนวน APPOINTMENT_SCHEDULE ที่เกี่ยวข้อง
+        const [appointmentCount] = await connection.execute(
+            'SELECT COUNT(*) as count FROM APPOINTMENT_SCHEDULE WHERE HNCODE = ?',
+            [hn]
+        );
+        const appointmentCountNum = appointmentCount[0]?.count || 0;
+
+        // ลบข้อมูลที่เกี่ยวข้องกับ TREATMENT1 ทั้งหมด
+        if (vnoList.length > 0) {
+            // ลบข้อมูลในตารางที่เกี่ยวข้อง
+            const placeholders = vnoList.map(() => '?').join(',');
+            
+            await connection.execute(
+                `DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO IN (${placeholders})`,
+                vnoList
+            );
+            
+            await connection.execute(
+                `DELETE FROM TREATMENT1_DRUG WHERE VNO IN (${placeholders})`,
+                vnoList
+            );
+            
+            await connection.execute(
+                `DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO IN (${placeholders})`,
+                vnoList
+            );
+            
+            await connection.execute(
+                `DELETE FROM TREATMENT1_LABORATORY WHERE VNO IN (${placeholders})`,
+                vnoList
+            );
+            
+            await connection.execute(
+                `DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO IN (${placeholders})`,
+                vnoList
+            );
+        }
+
+        // ลบข้อมูล TREATMENT1 ที่เกี่ยวข้องกับ HN
+        await connection.execute('DELETE FROM TREATMENT1 WHERE HNNO = ?', [hn]);
+
+        // ลบข้อมูล DAILY_QUEUE ที่เกี่ยวข้องกับ HN
+        await connection.execute('DELETE FROM DAILY_QUEUE WHERE HNCODE = ?', [hn]);
+
+        // ลบข้อมูล APPOINTMENT_SCHEDULE ที่เกี่ยวข้องกับ HN
+        await connection.execute('DELETE FROM APPOINTMENT_SCHEDULE WHERE HNCODE = ?', [hn]);
+
+        // ลบข้อมูลผู้ป่วย
+        const [result] = await connection.execute('DELETE FROM patient1 WHERE HNCODE = ?', [hn]);
+
+        if (result.affectedRows === 0) {
+            await connection.rollback();
+            return res.status(404).json({
+                success: false,
+                message: 'ไม่พบข้อมูลผู้ป่วยที่ต้องการลบ'
+            });
+        }
+
+        await connection.commit();
+
         res.json({
             success: true,
-            message: 'ลบข้อมูลผู้ป่วยสำเร็จ'
+            message: 'ลบข้อมูลผู้ป่วยและข้อมูลที่เกี่ยวข้องสำเร็จ',
+            data: {
+                HNCODE: hn,
+                deletedTreatments: treatmentCount,
+                deletedQueues: queueCountNum,
+                deletedAppointments: appointmentCountNum,
+                summary: {
+                    treatments: treatmentCount,
+                    queues: queueCountNum,
+                    appointments: appointmentCountNum,
+                    total: treatmentCount + queueCountNum + appointmentCountNum
+                }
+            }
         });
     } catch (error) {
+        if (connection) {
+            try {
+                await connection.rollback();
+            } catch (rollbackError) {
+                console.error('Error rolling back transaction:', rollbackError);
+            }
+        }
+
         console.error('Error deleting patient:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการลบข้อมูลผู้ป่วย',
             error: error.message
         });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
     }
 });
 

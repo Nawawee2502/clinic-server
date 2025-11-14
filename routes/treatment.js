@@ -1066,4 +1066,63 @@ router.get('/stats/revenue', async (req, res) => {
     }
 });
 
+// DELETE treatment
+router.delete('/:vno', async (req, res) => {
+    const db = await require('../config/db');
+    let connection = null;
+
+    try {
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const { vno } = req.params;
+
+        // ลบข้อมูลที่เกี่ยวข้องทั้งหมด
+        await connection.execute('DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?', [vno]);
+        await connection.execute('DELETE FROM TREATMENT1_DRUG WHERE VNO = ?', [vno]);
+        await connection.execute('DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?', [vno]);
+        await connection.execute('DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?', [vno]);
+        await connection.execute('DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?', [vno]);
+        
+        // ลบข้อมูล treatment หลัก
+        const [result] = await connection.execute('DELETE FROM TREATMENT1 WHERE VNO = ?', [vno]);
+
+        if (result.affectedRows === 0) {
+            await connection.rollback();
+            return res.status(404).json({
+                success: false,
+                message: 'ไม่พบข้อมูลการรักษาที่ต้องการลบ'
+            });
+        }
+
+        await connection.commit();
+
+        res.json({
+            success: true,
+            message: 'ลบข้อมูลการรักษาสำเร็จ',
+            data: { VNO: vno }
+        });
+
+    } catch (error) {
+        if (connection) {
+            try {
+                await connection.rollback();
+            } catch (rollbackError) {
+                console.error('Error rolling back transaction:', rollbackError);
+            }
+        }
+
+        console.error('Error deleting treatment:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการลบข้อมูลการรักษา',
+            error: error.message
+        });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
+    }
+});
+
 module.exports = router;
