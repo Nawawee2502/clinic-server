@@ -44,10 +44,30 @@ router.get('/', async (req, res) => {
                 count: rows.length
             });
         } catch (tableError) {
+            // Log the actual error for debugging
+            console.error('BAL_BANK query error:', {
+                code: tableError.code,
+                errno: tableError.errno,
+                sqlState: tableError.sqlState,
+                sqlMessage: tableError.sqlMessage,
+                message: tableError.message
+            });
+
             // If table doesn't exist, return empty array
-            if (tableError.code === 'ER_NO_SUCH_TABLE' || tableError.message.includes("doesn't exist")) {
+            // Check multiple possible error codes and messages
+            const isTableNotExist = 
+                tableError.code === 'ER_NO_SUCH_TABLE' ||
+                tableError.code === '42S02' ||
+                tableError.errno === 1146 ||
+                (tableError.message && (
+                    tableError.message.includes("doesn't exist") ||
+                    tableError.message.includes("Unknown table") ||
+                    tableError.message.includes("Table") && tableError.message.includes("doesn't exist")
+                ));
+
+            if (isTableNotExist) {
                 console.log('BAL_BANK table does not exist yet, returning empty array');
-                res.json({
+                return res.json({
                     success: true,
                     data: [],
                     count: 0
@@ -57,11 +77,22 @@ router.get('/', async (req, res) => {
             }
         }
     } catch (error) {
-        console.error('Error fetching BAL_BANK:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลยอดยกมาเงินฝากธนาคาร',
-            error: error.message
+        console.error('Error fetching BAL_BANK:', {
+            code: error.code,
+            errno: error.errno,
+            sqlState: error.sqlState,
+            sqlMessage: error.sqlMessage,
+            message: error.message,
+            stack: error.stack
+        });
+        
+        // Return empty array instead of error to prevent 500
+        // This allows the UI to work even if table doesn't exist
+        res.json({
+            success: true,
+            data: [],
+            count: 0,
+            warning: 'ไม่สามารถโหลดข้อมูลได้ (ตารางอาจยังไม่ถูกสร้าง)'
         });
     }
 });
@@ -90,7 +121,16 @@ router.get('/date/:date/:bankNo', async (req, res) => {
                 data: rows[0]
             });
         } catch (tableError) {
-            if (tableError.code === 'ER_NO_SUCH_TABLE' || tableError.message.includes("doesn't exist")) {
+            const isTableNotExist = 
+                tableError.code === 'ER_NO_SUCH_TABLE' ||
+                tableError.code === '42S02' ||
+                tableError.errno === 1146 ||
+                (tableError.message && (
+                    tableError.message.includes("doesn't exist") ||
+                    tableError.message.includes("Unknown table")
+                ));
+
+            if (isTableNotExist) {
                 return res.status(404).json({
                     success: false,
                     message: 'ไม่พบข้อมูลยอดยกมาเงินฝากธนาคารสำหรับวันที่และเลขบัญชีนี้'
@@ -365,7 +405,16 @@ router.delete('/:date/:bankNo', async (req, res) => {
                 message: 'ลบข้อมูลยอดยกมาเงินฝากธนาคารสำเร็จ'
             });
         } catch (tableError) {
-            if (tableError.code === 'ER_NO_SUCH_TABLE' || tableError.message.includes("doesn't exist")) {
+            const isTableNotExist = 
+                tableError.code === 'ER_NO_SUCH_TABLE' ||
+                tableError.code === '42S02' ||
+                tableError.errno === 1146 ||
+                (tableError.message && (
+                    tableError.message.includes("doesn't exist") ||
+                    tableError.message.includes("Unknown table")
+                ));
+
+            if (isTableNotExist) {
                 return res.status(404).json({
                     success: false,
                     message: 'ไม่พบข้อมูลยอดยกมาเงินฝากธนาคารสำหรับวันที่และเลขบัญชีนี้'
