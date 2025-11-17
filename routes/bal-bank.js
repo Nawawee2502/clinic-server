@@ -8,39 +8,54 @@ router.get('/', async (req, res) => {
         const db = await dbPoolPromise;
         const { date_from, date_to, year, month, bank_no } = req.query;
 
-        let query = 'SELECT * FROM BAL_BANK WHERE 1=1';
-        const params = [];
+        // Check if table exists, if not return empty array
+        try {
+            let query = 'SELECT * FROM BAL_BANK WHERE 1=1';
+            const params = [];
 
-        if (date_from) {
-            query += ' AND RDATE >= ?';
-            params.push(date_from);
-        }
-        if (date_to) {
-            query += ' AND RDATE <= ?';
-            params.push(date_to);
-        }
-        if (year) {
-            query += ' AND MYEAR = ?';
-            params.push(year);
-        }
-        if (month) {
-            query += ' AND MONTHH = ?';
-            params.push(month);
-        }
-        if (bank_no) {
-            query += ' AND BANK_NO = ?';
-            params.push(bank_no);
-        }
+            if (date_from) {
+                query += ' AND RDATE >= ?';
+                params.push(date_from);
+            }
+            if (date_to) {
+                query += ' AND RDATE <= ?';
+                params.push(date_to);
+            }
+            if (year) {
+                query += ' AND MYEAR = ?';
+                params.push(year);
+            }
+            if (month) {
+                query += ' AND MONTHH = ?';
+                params.push(month);
+            }
+            if (bank_no) {
+                query += ' AND BANK_NO = ?';
+                params.push(bank_no);
+            }
 
-        query += ' ORDER BY RDATE DESC, BANK_NO';
+            query += ' ORDER BY RDATE DESC, BANK_NO';
 
-        const [rows] = await db.execute(query, params);
+            const [rows] = await db.execute(query, params);
 
-        res.json({
-            success: true,
-            data: rows,
-            count: rows.length
-        });
+            res.json({
+                success: true,
+                data: rows,
+                count: rows.length
+            });
+        } catch (tableError) {
+            // If table doesn't exist, return empty array
+            if (tableError.code === 'ER_NO_SUCH_TABLE' || tableError.message.includes("doesn't exist")) {
+                console.log('BAL_BANK table does not exist yet, returning empty array');
+                res.json({
+                    success: true,
+                    data: [],
+                    count: 0
+                });
+            } else {
+                throw tableError;
+            }
+        }
     } catch (error) {
         console.error('Error fetching BAL_BANK:', error);
         res.status(500).json({
@@ -57,22 +72,32 @@ router.get('/date/:date/:bankNo', async (req, res) => {
         const db = await dbPoolPromise;
         const { date, bankNo } = req.params;
 
-        const [rows] = await db.execute(
-            'SELECT * FROM BAL_BANK WHERE RDATE = ? AND BANK_NO = ?',
-            [date, bankNo]
-        );
+        try {
+            const [rows] = await db.execute(
+                'SELECT * FROM BAL_BANK WHERE RDATE = ? AND BANK_NO = ?',
+                [date, bankNo]
+            );
 
-        if (rows.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบข้อมูลยอดยกมาเงินฝากธนาคารสำหรับวันที่และเลขบัญชีนี้'
+            if (rows.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ไม่พบข้อมูลยอดยกมาเงินฝากธนาคารสำหรับวันที่และเลขบัญชีนี้'
+                });
+            }
+
+            res.json({
+                success: true,
+                data: rows[0]
             });
+        } catch (tableError) {
+            if (tableError.code === 'ER_NO_SUCH_TABLE' || tableError.message.includes("doesn't exist")) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ไม่พบข้อมูลยอดยกมาเงินฝากธนาคารสำหรับวันที่และเลขบัญชีนี้'
+                });
+            }
+            throw tableError;
         }
-
-        res.json({
-            success: true,
-            data: rows[0]
-        });
     } catch (error) {
         console.error('Error fetching BAL_BANK by date and bank:', error);
         res.status(500).json({
@@ -100,6 +125,18 @@ router.post('/', async (req, res) => {
                 message: 'กรุณาระบุวันที่ จำนวนเงิน และเลขบัญชี'
             });
         }
+
+        // Create table if it doesn't exist
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS BAL_BANK (
+                RDATE DATE NOT NULL,
+                AMT DECIMAL(15,2) NOT NULL DEFAULT 0,
+                BANK_NO VARCHAR(50) NOT NULL,
+                MYEAR VARCHAR(4) NULL,
+                MONTHH INT NULL,
+                PRIMARY KEY (RDATE, BANK_NO)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        `);
 
         const date = new Date(RDATE);
         const year = date.getFullYear();
@@ -210,6 +247,18 @@ router.put('/:date/:bankNo', async (req, res) => {
             });
         }
 
+        // Create table if it doesn't exist
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS BAL_BANK (
+                RDATE DATE NOT NULL,
+                AMT DECIMAL(15,2) NOT NULL DEFAULT 0,
+                BANK_NO VARCHAR(50) NOT NULL,
+                MYEAR VARCHAR(4) NULL,
+                MONTHH INT NULL,
+                PRIMARY KEY (RDATE, BANK_NO)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        `);
+
         const dateObj = new Date(date);
         const year = dateObj.getFullYear();
         const month = dateObj.getMonth() + 1;
@@ -298,22 +347,32 @@ router.delete('/:date/:bankNo', async (req, res) => {
         const db = await dbPoolPromise;
         const { date, bankNo } = req.params;
 
-        const [result] = await db.execute(
-            'DELETE FROM BAL_BANK WHERE RDATE = ? AND BANK_NO = ?',
-            [date, bankNo]
-        );
+        try {
+            const [result] = await db.execute(
+                'DELETE FROM BAL_BANK WHERE RDATE = ? AND BANK_NO = ?',
+                [date, bankNo]
+            );
 
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบข้อมูลยอดยกมาเงินฝากธนาคารสำหรับวันที่และเลขบัญชีนี้'
+            if (result.affectedRows === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ไม่พบข้อมูลยอดยกมาเงินฝากธนาคารสำหรับวันที่และเลขบัญชีนี้'
+                });
+            }
+
+            res.json({
+                success: true,
+                message: 'ลบข้อมูลยอดยกมาเงินฝากธนาคารสำเร็จ'
             });
+        } catch (tableError) {
+            if (tableError.code === 'ER_NO_SUCH_TABLE' || tableError.message.includes("doesn't exist")) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ไม่พบข้อมูลยอดยกมาเงินฝากธนาคารสำหรับวันที่และเลขบัญชีนี้'
+                });
+            }
+            throw tableError;
         }
-
-        res.json({
-            success: true,
-            message: 'ลบข้อมูลยอดยกมาเงินฝากธนาคารสำเร็จ'
-        });
     } catch (error) {
         console.error('Error deleting BAL_BANK:', error);
         res.status(500).json({

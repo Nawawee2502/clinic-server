@@ -8,35 +8,50 @@ router.get('/', async (req, res) => {
         const db = await dbPoolPromise;
         const { date_from, date_to, year, month } = req.query;
 
-        let query = 'SELECT * FROM BAL_CASH WHERE 1=1';
-        const params = [];
+        // Check if table exists, if not return empty array
+        try {
+            let query = 'SELECT * FROM BAL_CASH WHERE 1=1';
+            const params = [];
 
-        if (date_from) {
-            query += ' AND RDATE >= ?';
-            params.push(date_from);
-        }
-        if (date_to) {
-            query += ' AND RDATE <= ?';
-            params.push(date_to);
-        }
-        if (year) {
-            query += ' AND MYEAR = ?';
-            params.push(year);
-        }
-        if (month) {
-            query += ' AND MONTHH = ?';
-            params.push(month);
-        }
+            if (date_from) {
+                query += ' AND RDATE >= ?';
+                params.push(date_from);
+            }
+            if (date_to) {
+                query += ' AND RDATE <= ?';
+                params.push(date_to);
+            }
+            if (year) {
+                query += ' AND MYEAR = ?';
+                params.push(year);
+            }
+            if (month) {
+                query += ' AND MONTHH = ?';
+                params.push(month);
+            }
 
-        query += ' ORDER BY RDATE DESC';
+            query += ' ORDER BY RDATE DESC';
 
-        const [rows] = await db.execute(query, params);
+            const [rows] = await db.execute(query, params);
 
-        res.json({
-            success: true,
-            data: rows,
-            count: rows.length
-        });
+            res.json({
+                success: true,
+                data: rows,
+                count: rows.length
+            });
+        } catch (tableError) {
+            // If table doesn't exist, return empty array
+            if (tableError.code === 'ER_NO_SUCH_TABLE' || tableError.message.includes("doesn't exist")) {
+                console.log('BAL_CASH table does not exist yet, returning empty array');
+                res.json({
+                    success: true,
+                    data: [],
+                    count: 0
+                });
+            } else {
+                throw tableError;
+            }
+        }
     } catch (error) {
         console.error('Error fetching BAL_CASH:', error);
         res.status(500).json({
@@ -53,22 +68,32 @@ router.get('/date/:date', async (req, res) => {
         const db = await dbPoolPromise;
         const { date } = req.params;
 
-        const [rows] = await db.execute(
-            'SELECT * FROM BAL_CASH WHERE RDATE = ?',
-            [date]
-        );
+        try {
+            const [rows] = await db.execute(
+                'SELECT * FROM BAL_CASH WHERE RDATE = ?',
+                [date]
+            );
 
-        if (rows.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบข้อมูลยอดยกมาเงินสดสำหรับวันที่นี้'
+            if (rows.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ไม่พบข้อมูลยอดยกมาเงินสดสำหรับวันที่นี้'
+                });
+            }
+
+            res.json({
+                success: true,
+                data: rows[0]
             });
+        } catch (tableError) {
+            if (tableError.code === 'ER_NO_SUCH_TABLE' || tableError.message.includes("doesn't exist")) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ไม่พบข้อมูลยอดยกมาเงินสดสำหรับวันที่นี้'
+                });
+            }
+            throw tableError;
         }
-
-        res.json({
-            success: true,
-            data: rows[0]
-        });
     } catch (error) {
         console.error('Error fetching BAL_CASH by date:', error);
         res.status(500).json({
@@ -96,6 +121,17 @@ router.post('/', async (req, res) => {
                 message: 'กรุณาระบุวันที่และจำนวนเงิน'
             });
         }
+
+        // Create table if it doesn't exist
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS BAL_CASH (
+                RDATE DATE NOT NULL,
+                AMT DECIMAL(15,2) NOT NULL DEFAULT 0,
+                MYEAR VARCHAR(4) NULL,
+                MONTHH INT NULL,
+                PRIMARY KEY (RDATE)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        `);
 
         const date = new Date(RDATE);
         const year = date.getFullYear();
@@ -206,6 +242,17 @@ router.put('/:date', async (req, res) => {
             });
         }
 
+        // Create table if it doesn't exist
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS BAL_CASH (
+                RDATE DATE NOT NULL,
+                AMT DECIMAL(15,2) NOT NULL DEFAULT 0,
+                MYEAR VARCHAR(4) NULL,
+                MONTHH INT NULL,
+                PRIMARY KEY (RDATE)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        `);
+
         const dateObj = new Date(date);
         const year = dateObj.getFullYear();
         const month = dateObj.getMonth() + 1;
@@ -293,22 +340,32 @@ router.delete('/:date', async (req, res) => {
         const db = await dbPoolPromise;
         const { date } = req.params;
 
-        const [result] = await db.execute(
-            'DELETE FROM BAL_CASH WHERE RDATE = ?',
-            [date]
-        );
+        try {
+            const [result] = await db.execute(
+                'DELETE FROM BAL_CASH WHERE RDATE = ?',
+                [date]
+            );
 
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบข้อมูลยอดยกมาเงินสดสำหรับวันที่นี้'
+            if (result.affectedRows === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ไม่พบข้อมูลยอดยกมาเงินสดสำหรับวันที่นี้'
+                });
+            }
+
+            res.json({
+                success: true,
+                message: 'ลบข้อมูลยอดยกมาเงินสดสำเร็จ'
             });
+        } catch (tableError) {
+            if (tableError.code === 'ER_NO_SUCH_TABLE' || tableError.message.includes("doesn't exist")) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ไม่พบข้อมูลยอดยกมาเงินสดสำหรับวันที่นี้'
+                });
+            }
+            throw tableError;
         }
-
-        res.json({
-            success: true,
-            message: 'ลบข้อมูลยอดยกมาเงินสดสำเร็จ'
-        });
     } catch (error) {
         console.error('Error deleting BAL_CASH:', error);
         res.status(500).json({
