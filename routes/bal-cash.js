@@ -10,6 +10,16 @@ router.get('/', async (req, res) => {
 
         // Check if table exists, if not return empty array
         try {
+            // Check if MYEAR and MONTHH columns exist
+            const [columns] = await db.execute(`
+                SELECT COLUMN_NAME 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'BAL_CASH' 
+                AND COLUMN_NAME IN ('MYEAR', 'MONTHH')
+            `);
+            const hasYearMonth = columns.length > 0;
+
             let query = 'SELECT * FROM BAL_CASH WHERE 1=1';
             const params = [];
 
@@ -21,11 +31,15 @@ router.get('/', async (req, res) => {
                 query += ' AND RDATE <= ?';
                 params.push(date_to);
             }
-            if (year) {
+            if (year && hasYearMonth) {
                 query += ' AND MYEAR = ?';
                 params.push(year);
+            } else if (year) {
+                // Filter by year using RDATE if MYEAR doesn't exist
+                query += ' AND RDATE LIKE ?';
+                params.push(`${year}%`);
             }
-            if (month) {
+            if (month && hasYearMonth) {
                 query += ' AND MONTHH = ?';
                 params.push(month);
             }
@@ -162,21 +176,51 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // Create table if it doesn't exist
-        await connection.execute(`
-            CREATE TABLE IF NOT EXISTS BAL_CASH (
-                RDATE DATE NOT NULL,
-                AMT DECIMAL(15,2) NOT NULL DEFAULT 0,
-                MYEAR VARCHAR(4) NULL,
-                MONTHH INT NULL,
-                PRIMARY KEY (RDATE)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        // Check if table exists, if not create it
+        const [tableExists] = await connection.execute(`
+            SELECT COUNT(*) as count 
+            FROM INFORMATION_SCHEMA.TABLES 
+            WHERE TABLE_SCHEMA = DATABASE() 
+            AND TABLE_NAME = 'BAL_CASH'
         `);
+
+        if (tableExists[0].count === 0) {
+            // Create table matching existing structure
+            await connection.execute(`
+                CREATE TABLE BAL_CASH (
+                    RDATE VARCHAR(20) NOT NULL,
+                    AMT DOUBLE(12,2) NOT NULL DEFAULT 0,
+                    PRIMARY KEY (RDATE)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+            `);
+        }
+
+        // Check if MYEAR and MONTHH columns exist, if not add them
+        const [yearMonthColumns] = await connection.execute(`
+            SELECT COLUMN_NAME 
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_SCHEMA = DATABASE() 
+            AND TABLE_NAME = 'BAL_CASH' 
+            AND COLUMN_NAME IN ('MYEAR', 'MONTHH')
+        `);
+
+        const hasYear = yearMonthColumns.some(c => c.COLUMN_NAME === 'MYEAR');
+        const hasMonth = yearMonthColumns.some(c => c.COLUMN_NAME === 'MONTHH');
+
+        if (!hasYear) {
+            await connection.execute(`ALTER TABLE BAL_CASH ADD COLUMN MYEAR VARCHAR(4) NULL`);
+        }
+        if (!hasMonth) {
+            await connection.execute(`ALTER TABLE BAL_CASH ADD COLUMN MONTHH INT NULL`);
+        }
 
         const date = new Date(RDATE);
         const year = date.getFullYear();
         const month = date.getMonth() + 1;
         const day = date.getDate();
+        
+        // Format RDATE as string (varchar) to match table structure
+        const rdateStr = RDATE; // Keep as is (should be YYYY-MM-DD format)
 
         // Check if record exists for this date
         const [existing] = await connection.execute(
@@ -186,16 +230,30 @@ router.post('/', async (req, res) => {
 
         if (existing.length > 0) {
             // Update existing record
-            await connection.execute(
-                'UPDATE BAL_CASH SET AMT = ?, MYEAR = ?, MONTHH = ? WHERE RDATE = ?',
-                [AMT, year, month, RDATE]
-            );
+            if (hasYear && hasMonth) {
+                await connection.execute(
+                    'UPDATE BAL_CASH SET AMT = ?, MYEAR = ?, MONTHH = ? WHERE RDATE = ?',
+                    [AMT, year, month, rdateStr]
+                );
+            } else {
+                await connection.execute(
+                    'UPDATE BAL_CASH SET AMT = ? WHERE RDATE = ?',
+                    [AMT, rdateStr]
+                );
+            }
         } else {
             // Insert new record
-            await connection.execute(
-                'INSERT INTO BAL_CASH (RDATE, AMT, MYEAR, MONTHH) VALUES (?, ?, ?, ?)',
-                [RDATE, AMT, year, month]
-            );
+            if (hasYear && hasMonth) {
+                await connection.execute(
+                    'INSERT INTO BAL_CASH (RDATE, AMT, MYEAR, MONTHH) VALUES (?, ?, ?, ?)',
+                    [rdateStr, AMT, year, month]
+                );
+            } else {
+                await connection.execute(
+                    'INSERT INTO BAL_CASH (RDATE, AMT) VALUES (?, ?)',
+                    [rdateStr, AMT]
+                );
+            }
         }
 
         // Propagate balance to all future dates until December 31 of current year
@@ -219,16 +277,30 @@ router.post('/', async (req, res) => {
 
             if (existingNext.length > 0) {
                 // Update existing record with current balance
-                await connection.execute(
-                    'UPDATE BAL_CASH SET AMT = ?, MYEAR = ?, MONTHH = ? WHERE RDATE = ?',
-                    [currentBalance, nextYear, nextMonth, nextDateStr]
-                );
+                if (hasYear && hasMonth) {
+                    await connection.execute(
+                        'UPDATE BAL_CASH SET AMT = ?, MYEAR = ?, MONTHH = ? WHERE RDATE = ?',
+                        [currentBalance, nextYear, nextMonth, nextDateStr]
+                    );
+                } else {
+                    await connection.execute(
+                        'UPDATE BAL_CASH SET AMT = ? WHERE RDATE = ?',
+                        [currentBalance, nextDateStr]
+                    );
+                }
             } else {
                 // Insert new record with current balance
-                await connection.execute(
-                    'INSERT INTO BAL_CASH (RDATE, AMT, MYEAR, MONTHH) VALUES (?, ?, ?, ?)',
-                    [nextDateStr, currentBalance, nextYear, nextMonth]
-                );
+                if (hasYear && hasMonth) {
+                    await connection.execute(
+                        'INSERT INTO BAL_CASH (RDATE, AMT, MYEAR, MONTHH) VALUES (?, ?, ?, ?)',
+                        [nextDateStr, currentBalance, nextYear, nextMonth]
+                    );
+                } else {
+                    await connection.execute(
+                        'INSERT INTO BAL_CASH (RDATE, AMT) VALUES (?, ?)',
+                        [nextDateStr, currentBalance]
+                    );
+                }
             }
 
             // Move to next day
@@ -282,16 +354,24 @@ router.put('/:date', async (req, res) => {
             });
         }
 
-        // Create table if it doesn't exist
-        await connection.execute(`
-            CREATE TABLE IF NOT EXISTS BAL_CASH (
-                RDATE DATE NOT NULL,
-                AMT DECIMAL(15,2) NOT NULL DEFAULT 0,
-                MYEAR VARCHAR(4) NULL,
-                MONTHH INT NULL,
-                PRIMARY KEY (RDATE)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        // Check if MYEAR and MONTHH columns exist
+        const [yearMonthColumns] = await connection.execute(`
+            SELECT COLUMN_NAME 
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_SCHEMA = DATABASE() 
+            AND TABLE_NAME = 'BAL_CASH' 
+            AND COLUMN_NAME IN ('MYEAR', 'MONTHH')
         `);
+
+        const hasYear = yearMonthColumns.some(c => c.COLUMN_NAME === 'MYEAR');
+        const hasMonth = yearMonthColumns.some(c => c.COLUMN_NAME === 'MONTHH');
+
+        if (!hasYear) {
+            await connection.execute(`ALTER TABLE BAL_CASH ADD COLUMN MYEAR VARCHAR(4) NULL`);
+        }
+        if (!hasMonth) {
+            await connection.execute(`ALTER TABLE BAL_CASH ADD COLUMN MONTHH INT NULL`);
+        }
 
         const dateObj = new Date(date);
         const year = dateObj.getFullYear();
@@ -310,10 +390,17 @@ router.put('/:date', async (req, res) => {
             });
         }
 
-        await connection.execute(
-            'UPDATE BAL_CASH SET AMT = ?, MYEAR = ?, MONTHH = ? WHERE RDATE = ?',
-            [AMT, year, month, date]
-        );
+        if (hasYear && hasMonth) {
+            await connection.execute(
+                'UPDATE BAL_CASH SET AMT = ?, MYEAR = ?, MONTHH = ? WHERE RDATE = ?',
+                [AMT, year, month, date]
+            );
+        } else {
+            await connection.execute(
+                'UPDATE BAL_CASH SET AMT = ? WHERE RDATE = ?',
+                [AMT, date]
+            );
+        }
 
         // Recalculate future dates until December 31 of current year
         const endDate = new Date(year, 11, 31); // December 31 of current year
@@ -333,15 +420,29 @@ router.put('/:date', async (req, res) => {
             );
 
             if (existingNext.length > 0) {
-                await connection.execute(
-                    'UPDATE BAL_CASH SET AMT = ?, MYEAR = ?, MONTHH = ? WHERE RDATE = ?',
-                    [currentBalance, nextYear, nextMonth, nextDateStr]
-                );
+                if (hasYear && hasMonth) {
+                    await connection.execute(
+                        'UPDATE BAL_CASH SET AMT = ?, MYEAR = ?, MONTHH = ? WHERE RDATE = ?',
+                        [currentBalance, nextYear, nextMonth, nextDateStr]
+                    );
+                } else {
+                    await connection.execute(
+                        'UPDATE BAL_CASH SET AMT = ? WHERE RDATE = ?',
+                        [currentBalance, nextDateStr]
+                    );
+                }
             } else {
-                await connection.execute(
-                    'INSERT INTO BAL_CASH (RDATE, AMT, MYEAR, MONTHH) VALUES (?, ?, ?, ?)',
-                    [nextDateStr, currentBalance, nextYear, nextMonth]
-                );
+                if (hasYear && hasMonth) {
+                    await connection.execute(
+                        'INSERT INTO BAL_CASH (RDATE, AMT, MYEAR, MONTHH) VALUES (?, ?, ?, ?)',
+                        [nextDateStr, currentBalance, nextYear, nextMonth]
+                    );
+                } else {
+                    await connection.execute(
+                        'INSERT INTO BAL_CASH (RDATE, AMT) VALUES (?, ?)',
+                        [nextDateStr, currentBalance]
+                    );
+                }
             }
 
             currentDate.setDate(currentDate.getDate() + 1);
