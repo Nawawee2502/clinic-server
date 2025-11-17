@@ -37,6 +37,8 @@ const receipt1Routes = require('./receipt1');
 const return1Routes = require('./return1');
 const balDrugRoutes = require('./bal-drug');
 const stockCardRoutes = require('./stock_card');
+const balCashRoutes = require('./bal-cash');
+const balBankRoutes = require('./bal-bank');
 
 
 
@@ -425,6 +427,8 @@ router.use('/receipt1', receipt1Routes);
 router.use('/return1', return1Routes);
 router.use('/bal_drug', balDrugRoutes);
 router.use('/stock_card', stockCardRoutes);
+router.use('/bal_cash', balCashRoutes);
+router.use('/bal_bank', balBankRoutes);
 
 
 // Utility APIs (handled by unit-package.js)
