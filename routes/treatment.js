@@ -238,6 +238,7 @@ router.get('/:vno', async (req, res) => {
                 COALESCE(d.GENERIC_NAME, 'ยาไม่ระบุ') as GENERIC_NAME,
                 COALESCE(d.TRADE_NAME, '') as TRADE_NAME,
                 COALESCE(d.UNIT_PRICE, 0) as DRUG_UNIT_PRICE,
+                COALESCE(d.eat1, '') as eat1,
                 COALESCE(u.UNIT_NAME, td.UNIT_CODE) as UNIT_NAME
             FROM TREATMENT1_DRUG td
             LEFT JOIN TABLE_DRUG d ON td.DRUG_CODE = d.DRUG_CODE
