@@ -141,6 +141,70 @@ router.get('/today', async (req, res) => {
     }
 });
 
+// GET all queue (ไม่กรองตามวันที่) - สำหรับหน้าตรวจรักษา
+router.get('/all', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+
+        console.log(`📅 Fetching all queue (no date filter)`);
+
+        const [rows] = await db.execute(`
+            SELECT 
+                dq.QUEUE_ID,
+                dq.QUEUE_NUMBER,
+                dq.QUEUE_TIME,
+                dq.STATUS,
+                dq.TYPE,
+                dq.CHIEF_COMPLAINT,
+                dq.APPOINTMENT_ID,
+                dq.CREATED_AT,
+                dq.QUEUE_DATE,
+                dq.SOCIAL_CARD,
+                dq.UCS_CARD,
+                -- Patient data
+                p.HNCODE,
+                p.PRENAME,
+                p.NAME1,
+                p.SURNAME,
+                p.AGE,
+                p.SEX,
+                p.TEL1,
+                p.SOCIAL_CARD as PATIENT_SOCIAL_CARD,
+                p.UCS_CARD as PATIENT_UCS_CARD,
+                -- VN if exists (check from TREATMENT1)
+                t.VNO,
+                t.STATUS1 as TREATMENT_STATUS
+            FROM DAILY_QUEUE dq
+            LEFT JOIN patient1 p ON dq.HNCODE = p.HNCODE
+            LEFT JOIN TREATMENT1 t ON dq.QUEUE_ID = t.QUEUE_ID
+            ORDER BY dq.QUEUE_DATE DESC, dq.QUEUE_NUMBER
+        `);
+
+        console.log(`📊 Found ${rows.length} queue items (all dates)`);
+
+        res.json({
+            success: true,
+            data: rows,
+            count: rows.length,
+            thailandTime: getThailandTime().toISOString(),
+            serverTime: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('Error fetching all queue:', {
+            message: error.message,
+            code: error.code,
+            sqlMessage: error.sqlMessage
+        });
+
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลคิวทั้งหมด',
+            error: error.message,
+            errorCode: error.code
+        });
+    }
+});
+
 // GET today's appointments
 router.get('/appointments/today', async (req, res) => {
     try {
