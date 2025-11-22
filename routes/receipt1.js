@@ -266,19 +266,26 @@ router.post('/', async (req, res) => {
         const month = MONTHH || (new Date().getMonth() + 1);
 
         const detailTotal = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
-        const vatRate = VAT1 || 7;
+        const vatRate = parseFloat(VAT1) || 0;
         const typeVat = TYPE_VAT || 'include';
 
         let total, vamt, gtotal;
 
-        if (typeVat === 'include') {
-            gtotal = detailTotal;
-            vamt = (detailTotal * vatRate) / (100 + vatRate);
-            total = detailTotal - vamt;
-        } else {
+        // ✅ ถ้า VAT1 เป็น 0% ให้ไม่คำนวณ VAT
+        if (vatRate === 0) {
             total = detailTotal;
-            vamt = total * (vatRate / 100);
-            gtotal = total + vamt;
+            vamt = 0;
+            gtotal = detailTotal;
+        } else {
+            if (typeVat === 'include') {
+                gtotal = detailTotal;
+                vamt = (detailTotal * vatRate) / (100 + vatRate);
+                total = detailTotal - vamt;
+            } else {
+                total = detailTotal;
+                vamt = total * (vatRate / 100);
+                gtotal = total + vamt;
+            }
         }
 
         await connection.execute(`
@@ -495,19 +502,26 @@ router.put('/:refno', async (req, res) => {
         await connection.execute('DELETE FROM STOCK_CARD WHERE REFNO = ?', [refno]);
 
         const detailTotal = details.reduce((sum, item) => sum + (parseFloat(item.AMT) || 0), 0);
-        const vatRate = VAT1 || 7;
+        const vatRate = parseFloat(VAT1) || 0;
         const typeVat = TYPE_VAT || 'include';
 
         let total, vamt, gtotal;
 
-        if (typeVat === 'include') {
-            gtotal = detailTotal;
-            vamt = (detailTotal * vatRate) / (100 + vatRate);
-            total = detailTotal - vamt;
-        } else {
+        // ✅ ถ้า VAT1 เป็น 0% ให้ไม่คำนวณ VAT
+        if (vatRate === 0) {
             total = detailTotal;
-            vamt = total * (vatRate / 100);
-            gtotal = total + vamt;
+            vamt = 0;
+            gtotal = detailTotal;
+        } else {
+            if (typeVat === 'include') {
+                gtotal = detailTotal;
+                vamt = (detailTotal * vatRate) / (100 + vatRate);
+                total = detailTotal - vamt;
+            } else {
+                total = detailTotal;
+                vamt = total * (vatRate / 100);
+                gtotal = total + vamt;
+            }
         }
 
         const [result] = await connection.execute(`
