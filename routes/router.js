@@ -39,6 +39,7 @@ const balDrugRoutes = require('./bal-drug');
 const stockCardRoutes = require('./stock_card');
 const balCashRoutes = require('./bal-cash');
 const balBankRoutes = require('./bal-bank');
+const typeDrugRoutes = require('./type-drug');
 
 
 
@@ -429,6 +430,7 @@ router.use('/bal_drug', balDrugRoutes);
 router.use('/stock_card', stockCardRoutes);
 router.use('/bal_cash', balCashRoutes);
 router.use('/bal_bank', balBankRoutes);
+router.use('/type_drug', typeDrugRoutes);
 
 
 // Utility APIs (handled by unit-package.js)
