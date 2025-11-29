@@ -565,6 +565,48 @@ router.delete('/:hn', async (req, res) => {
         // ลบข้อมูล APPOINTMENT_SCHEDULE ที่เกี่ยวข้องกับ HN
         await connection.execute('DELETE FROM APPOINTMENT_SCHEDULE WHERE HNCODE = ?', [hn]);
 
+        // ลบข้อมูลจากตารางอื่นๆ ที่อาจจะเกี่ยวข้องกับ HN
+        // ตรวจสอบและลบจากตารางที่อาจจะมี HNCODE หรือ HNNO
+        const tablesToCheck = [
+            'INCOME1',
+            'PAY1',
+            'RECEIPT1',
+            'RETURN1',
+            'INVOICE1',
+            'BILL1'
+        ];
+
+        for (const tableName of tablesToCheck) {
+            try {
+                // ตรวจสอบว่าตารางมีอยู่และมีฟิลด์ HNCODE หรือ HNNO หรือไม่
+                const [columns] = await connection.execute(`
+                    SELECT COLUMN_NAME 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = ? 
+                    AND COLUMN_NAME IN ('HNCODE', 'HNNO')
+                `, [tableName]);
+
+                if (columns.length > 0) {
+                    const columnNames = columns.map(c => c.COLUMN_NAME);
+                    const conditions = columnNames.map(col => `${col} = ?`).join(' OR ');
+                    const values = columnNames.map(() => hn);
+                    
+                    const [deleteResult] = await connection.execute(
+                        `DELETE FROM ${tableName} WHERE ${conditions}`,
+                        values
+                    );
+                    
+                    if (deleteResult.affectedRows > 0) {
+                        console.log(`✅ Deleted ${deleteResult.affectedRows} record(s) from ${tableName} where ${conditions}`);
+                    }
+                }
+            } catch (error) {
+                // ถ้าตารางไม่มีหรือไม่มีฟิลด์นี้ จะข้ามไป
+                console.log(`⚠️ ${tableName} table may not exist or may not have HNCODE/HNNO field, skipping...`);
+            }
+        }
+
         // ลบข้อมูลผู้ป่วย
         const [result] = await connection.execute('DELETE FROM patient1 WHERE HNCODE = ?', [hn]);
 
