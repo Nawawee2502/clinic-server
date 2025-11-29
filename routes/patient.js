@@ -433,7 +433,7 @@ router.put('/:hn', async (req, res) => {
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
             ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, CARD_ZIPCODE
+            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD
         } = req.body;
 
         // Helper function to convert empty strings to null
@@ -493,7 +493,7 @@ router.put('/:hn', async (req, res) => {
         IDNO = ?, PRENAME = ?, NAME1 = ?, SURNAME = ?, SEX = ?, BDATE = ?, AGE = ?,
         BLOOD_GROUP1 = ?, OCCUPATION1 = ?, ORIGIN1 = ?, NATIONAL1 = ?, RELIGION1 = ?, STATUS1 = ?,
         WEIGHT1 = ?, HIGH1 = ?, CARD_ADDR1 = ?, CARD_TUMBOL_CODE = ?, CARD_AMPHER_CODE = ?,
-        CARD_PROVINCE_CODE = ?, CARD_ZIPCODE = ?, ADDR1 = ?, TUMBOL_CODE = ?, AMPHER_CODE = ?, PROVINCE_CODE = ?,
+        CARD_PROVINCE_CODE = ?, ADDR1 = ?, TUMBOL_CODE = ?, AMPHER_CODE = ?, PROVINCE_CODE = ?,
         ZIPCODE = ?, TEL1 = ?, EMAIL1 = ?, DISEASE1 = ?, DRUG_ALLERGY = ?, FOOD_ALLERGIES = ?,
         TREATMENT_CARD = ?, SOCIAL_CARD = ?, UCS_CARD = ?
       WHERE HNCODE = ?
@@ -501,7 +501,7 @@ router.put('/:hn', async (req, res) => {
             toNull(IDNO), toNull(PRENAME), toNull(NAME1), toNull(SURNAME), toNull(SEX), toNull(BDATE), toNull(AGE),
             toNull(BLOOD_GROUP1), toNull(OCCUPATION1), toNull(ORIGIN1), toNull(NATIONAL1), toNull(RELIGION1), toNull(STATUS1),
             toNull(WEIGHT1), toNull(HIGH1), toNull(CARD_ADDR1), toNull(CARD_TUMBOL_CODE), toNull(CARD_AMPHER_CODE),
-            toNull(CARD_PROVINCE_CODE), toNull(CARD_ZIPCODE), toNull(ADDR1), toNull(TUMBOL_CODE), toNull(AMPHER_CODE), toNull(PROVINCE_CODE),
+            toNull(CARD_PROVINCE_CODE), toNull(ADDR1), toNull(TUMBOL_CODE), toNull(AMPHER_CODE), toNull(PROVINCE_CODE),
             toNull(ZIPCODE), toNull(TEL1), toNull(EMAIL1), toNull(DISEASE1), toNull(DRUG_ALLERGY), toNull(FOOD_ALLERGIES),
             toNull(TREATMENT_CARD), toNull(SOCIAL_CARD), toNull(UCS_CARD), hn
         ]);
