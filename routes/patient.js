@@ -420,8 +420,12 @@ router.post('/', async (req, res) => {
 
 // PUT update patient
 router.put('/:hn', async (req, res) => {
+    let connection = null;
     try {
-        const db = await require('../config/db');
+        const pool = await dbPoolPromise;
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
         const { hn } = req.params;
         const {
             IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
@@ -429,33 +433,85 @@ router.put('/:hn', async (req, res) => {
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
             ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD
+            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, CARD_ZIPCODE
         } = req.body;
 
-        const [result] = await db.execute(`
-      UPDATE patient1 SET 
-        IDNO = ?, PRENAME = ?, NAME1 = ?, SURNAME = ?, SEX = ?, BDATE = ?, AGE = ?,
-        BLOOD_GROUP1 = ?, OCCUPATION1 = ?, ORIGIN1 = ?, NATIONAL1 = ?, RELIGION1 = ?, STATUS1 = ?,
-        WEIGHT1 = ?, HIGH1 = ?, CARD_ADDR1 = ?, CARD_TUMBOL_CODE = ?, CARD_AMPHER_CODE = ?,
-        CARD_PROVINCE_CODE = ?, ADDR1 = ?, TUMBOL_CODE = ?, AMPHER_CODE = ?, PROVINCE_CODE = ?,
-        ZIPCODE = ?, TEL1 = ?, EMAIL1 = ?, DISEASE1 = ?, DRUG_ALLERGY = ?, FOOD_ALLERGIES = ?,
-        TREATMENT_CARD = ?, SOCIAL_CARD = ?, UCS_CARD = ?
-      WHERE HNCODE = ?
-    `, [
-            IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
-            BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
-            WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
-            CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
-            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, hn
-        ]);
+        // Helper function to convert empty strings to null
+        const toNull = (value) => {
+            if (value === undefined || value === null || value === '') {
+                return null;
+            }
+            return value;
+        };
 
-        if (result.affectedRows === 0) {
+        // Validate required fields
+        if (!NAME1 || NAME1.trim() === '') {
+            await connection.rollback();
+            return res.status(400).json({
+                success: false,
+                message: 'กรุณาระบุชื่อ'
+            });
+        }
+
+        // Check if patient exists
+        const [existingPatient] = await connection.execute(
+            'SELECT HNCODE FROM patient1 WHERE HNCODE = ?',
+            [hn]
+        );
+
+        if (existingPatient.length === 0) {
+            await connection.rollback();
             return res.status(404).json({
                 success: false,
                 message: 'ไม่พบข้อมูลผู้ป่วยที่ต้องการแก้ไข'
             });
         }
+
+        // Check for duplicate IDNO if provided
+        const normalizedIdNo = IDNO ? IDNO.trim() : null;
+        if (normalizedIdNo) {
+            const [idRows] = await connection.execute(
+                'SELECT HNCODE FROM patient1 WHERE IDNO = ? AND HNCODE != ?',
+                [normalizedIdNo, hn]
+            );
+
+            if (idRows.length > 0) {
+                await connection.rollback();
+                return res.status(409).json({
+                    success: false,
+                    message: 'เลขบัตรประชาชนนี้มีอยู่แล้วในระบบ',
+                    code: 'DUPLICATE_IDNO'
+                });
+            }
+        }
+
+        const [result] = await connection.execute(`
+      UPDATE patient1 SET 
+        IDNO = ?, PRENAME = ?, NAME1 = ?, SURNAME = ?, SEX = ?, BDATE = ?, AGE = ?,
+        BLOOD_GROUP1 = ?, OCCUPATION1 = ?, ORIGIN1 = ?, NATIONAL1 = ?, RELIGION1 = ?, STATUS1 = ?,
+        WEIGHT1 = ?, HIGH1 = ?, CARD_ADDR1 = ?, CARD_TUMBOL_CODE = ?, CARD_AMPHER_CODE = ?,
+        CARD_PROVINCE_CODE = ?, CARD_ZIPCODE = ?, ADDR1 = ?, TUMBOL_CODE = ?, AMPHER_CODE = ?, PROVINCE_CODE = ?,
+        ZIPCODE = ?, TEL1 = ?, EMAIL1 = ?, DISEASE1 = ?, DRUG_ALLERGY = ?, FOOD_ALLERGIES = ?,
+        TREATMENT_CARD = ?, SOCIAL_CARD = ?, UCS_CARD = ?
+      WHERE HNCODE = ?
+    `, [
+            toNull(IDNO), toNull(PRENAME), toNull(NAME1), toNull(SURNAME), toNull(SEX), toNull(BDATE), toNull(AGE),
+            toNull(BLOOD_GROUP1), toNull(OCCUPATION1), toNull(ORIGIN1), toNull(NATIONAL1), toNull(RELIGION1), toNull(STATUS1),
+            toNull(WEIGHT1), toNull(HIGH1), toNull(CARD_ADDR1), toNull(CARD_TUMBOL_CODE), toNull(CARD_AMPHER_CODE),
+            toNull(CARD_PROVINCE_CODE), toNull(CARD_ZIPCODE), toNull(ADDR1), toNull(TUMBOL_CODE), toNull(AMPHER_CODE), toNull(PROVINCE_CODE),
+            toNull(ZIPCODE), toNull(TEL1), toNull(EMAIL1), toNull(DISEASE1), toNull(DRUG_ALLERGY), toNull(FOOD_ALLERGIES),
+            toNull(TREATMENT_CARD), toNull(SOCIAL_CARD), toNull(UCS_CARD), hn
+        ]);
+
+        if (result.affectedRows === 0) {
+            await connection.rollback();
+            return res.status(404).json({
+                success: false,
+                message: 'ไม่พบข้อมูลผู้ป่วยที่ต้องการแก้ไข'
+            });
+        }
+
+        await connection.commit();
 
         res.json({
             success: true,
@@ -468,12 +524,37 @@ router.put('/:hn', async (req, res) => {
             }
         });
     } catch (error) {
+        if (connection) {
+            try {
+                await connection.rollback();
+            } catch (rollbackError) {
+                console.error('Error rolling back transaction:', rollbackError);
+            }
+        }
+
         console.error('Error updating patient:', error);
+        console.error('Request body:', req.body);
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            sqlState: error.sqlState,
+            sqlMessage: error.sqlMessage
+        });
+
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลผู้ป่วย',
-            error: error.message
+            error: error.message,
+            details: process.env.NODE_ENV === 'development' ? {
+                code: error.code,
+                sqlState: error.sqlState,
+                sqlMessage: error.sqlMessage
+            } : undefined
         });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
     }
 });
 
