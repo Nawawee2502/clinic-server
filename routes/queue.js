@@ -574,7 +574,7 @@ router.put('/:queueId/status', async (req, res) => {
 
         console.log(`🔍 DEBUG: Updating queue status - QUEUE_ID: ${queueId}, Status: ${status}`);
 
-        const validStatuses = ['รอตรวจ', 'กำลังตรวจ', 'เสร็จแล้ว', 'รอชำระเงิน', 'ชำระเงินแล้ว'];
+        const validStatuses = ['รอตรวจ', 'กำลังตรวจ', 'เสร็จแล้ว', 'รอชำระเงิน', 'ชำระเงินแล้ว', 'ยกเลิกคิว'];
         if (!validStatuses.includes(status)) {
             return res.status(400).json({
                 success: false,
