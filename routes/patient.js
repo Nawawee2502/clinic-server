@@ -485,6 +485,9 @@ router.put('/:hn', async (req, res) => {
             }
         }
 
+        // Set query timeout
+        connection.config.queryTimeout = 10000; // 10 seconds
+
         const [result] = await connection.execute(`
       UPDATE patient1 SET 
         IDNO = ?, PRENAME = ?, NAME1 = ?, SURNAME = ?, SEX = ?, BDATE = ?, AGE = ?,
@@ -505,6 +508,7 @@ router.put('/:hn', async (req, res) => {
 
         if (result.affectedRows === 0) {
             await connection.rollback();
+            connection.release();
             return res.status(404).json({
                 success: false,
                 message: 'ไม่พบข้อมูลผู้ป่วยที่ต้องการแก้ไข'
@@ -512,6 +516,7 @@ router.put('/:hn', async (req, res) => {
         }
 
         await connection.commit();
+        connection.release();
 
         res.json({
             success: true,
@@ -524,36 +529,43 @@ router.put('/:hn', async (req, res) => {
             }
         });
     } catch (error) {
+        // Ensure connection is released even if rollback fails
         if (connection) {
             try {
                 await connection.rollback();
             } catch (rollbackError) {
                 console.error('Error rolling back transaction:', rollbackError);
+            } finally {
+                try {
+                    connection.release();
+                } catch (releaseError) {
+                    console.error('Error releasing connection:', releaseError);
+                }
             }
         }
 
         console.error('Error updating patient:', error);
-        console.error('Request body:', req.body);
+        console.error('Request body:', JSON.stringify(req.body, null, 2));
         console.error('Error details:', {
             message: error.message,
             code: error.code,
             sqlState: error.sqlState,
-            sqlMessage: error.sqlMessage
+            sqlMessage: error.sqlMessage,
+            errno: error.errno
         });
 
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลผู้ป่วย',
-            error: error.message,
-            details: process.env.NODE_ENV === 'development' ? {
-                code: error.code,
-                sqlState: error.sqlState,
-                sqlMessage: error.sqlMessage
-            } : undefined
-        });
-    } finally {
-        if (connection) {
-            connection.release();
+        // Prevent server crash by always sending response
+        if (!res.headersSent) {
+            res.status(500).json({
+                success: false,
+                message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลผู้ป่วย',
+                error: error.message,
+                details: process.env.NODE_ENV === 'development' ? {
+                    code: error.code,
+                    sqlState: error.sqlState,
+                    sqlMessage: error.sqlMessage
+                } : undefined
+            });
         }
     }
 });

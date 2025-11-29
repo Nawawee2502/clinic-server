@@ -3,9 +3,13 @@ const router = express.Router();
 
 // GET all provinces
 router.get('/', async (req, res) => {
+    let connection = null;
     try {
-        const db = await require('../config/db');
-        const [rows] = await db.execute('SELECT * FROM province ORDER BY PROVINCE_NAME');
+        const pool = await require('../config/db');
+        connection = await pool.getConnection();
+        
+        const [rows] = await connection.execute('SELECT * FROM province ORDER BY PROVINCE_NAME');
+        
         res.json({
             success: true,
             data: rows,
@@ -18,6 +22,10 @@ router.get('/', async (req, res) => {
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูลจังหวัด',
             error: error.message
         });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
     }
 });
 
