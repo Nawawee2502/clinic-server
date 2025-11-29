@@ -189,6 +189,40 @@ router.get('/search/:term', async (req, res) => {
         connection = await pool.getConnection();
         const { term } = req.params;
         const searchTerm = `%${term}%`;
+        
+        // แยกคำค้นหาเป็น array (สำหรับค้นหาชื่อเต็ม)
+        const searchWords = term.trim().split(/\s+/).filter(word => word.length > 0);
+        const searchConditions = [];
+        const searchParams = [];
+
+        // ค้นหาในแต่ละ field
+        searchConditions.push('p.HNCODE LIKE ?');
+        searchParams.push(searchTerm);
+        
+        searchConditions.push('p.IDNO LIKE ?');
+        searchParams.push(searchTerm);
+        
+        searchConditions.push('p.NAME1 LIKE ?');
+        searchParams.push(searchTerm);
+        
+        searchConditions.push('p.SURNAME LIKE ?');
+        searchParams.push(searchTerm);
+        
+        // ค้นหาชื่อเต็ม (CONCAT NAME1 และ SURNAME)
+        searchConditions.push('CONCAT(COALESCE(p.NAME1, ""), " ", COALESCE(p.SURNAME, "")) LIKE ?');
+        searchParams.push(searchTerm);
+        
+        // ค้นหาชื่อเต็มแบบ reverse (SURNAME + NAME1)
+        searchConditions.push('CONCAT(COALESCE(p.SURNAME, ""), " ", COALESCE(p.NAME1, "")) LIKE ?');
+        searchParams.push(searchTerm);
+        
+        // ถ้ามีหลายคำ ให้ค้นหาทั้งชื่อและนามสกุล (เช่น "มงคล มาลาพุด")
+        if (searchWords.length >= 2) {
+            // ค้นหาที่ชื่อมีคำแรก และนามสกุลมีคำที่สอง
+            searchConditions.push('(p.NAME1 LIKE ? AND p.SURNAME LIKE ?)');
+            searchParams.push(`%${searchWords[0]}%`);
+            searchParams.push(`%${searchWords[searchWords.length - 1]}%`);
+        }
 
         // ดึงข้อมูลครบเหมือน GET by HN เพื่อให้อัพเดทได้
         const [rows] = await connection.query(`
@@ -207,10 +241,10 @@ router.get('/search/:term', async (req, res) => {
       LEFT JOIN province card_prov ON p.CARD_PROVINCE_CODE = card_prov.PROVINCE_CODE
       LEFT JOIN ampher card_amp ON p.CARD_AMPHER_CODE = card_amp.AMPHER_CODE
       LEFT JOIN tumbol card_tumb ON p.CARD_TUMBOL_CODE = card_tumb.TUMBOL_CODE
-      WHERE p.HNCODE LIKE ? OR p.IDNO LIKE ? OR p.NAME1 LIKE ? OR p.SURNAME LIKE ?
+      WHERE ${searchConditions.join(' OR ')}
       ORDER BY p.HNCODE
       LIMIT 100
-    `, [searchTerm, searchTerm, searchTerm, searchTerm]);
+    `, searchParams);
 
         res.json({
             success: true,
