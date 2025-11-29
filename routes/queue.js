@@ -763,8 +763,38 @@ router.delete('/:queueId', async (req, res) => {
         connection = await dbPool.getConnection();
         await connection.beginTransaction();
 
-        // Delete TREATMENT1 record if exists
-        await connection.execute('DELETE FROM TREATMENT1 WHERE QUEUE_ID = ?', [queueId]);
+        // ลบข้อมูลลูกที่อ้างอิง VNO ของคิวนี้ก่อน (ใช้ subquery ตาม QUEUE_ID)
+        await connection.execute(
+            `DELETE FROM TREATMENT1_DIAGNOSIS 
+             WHERE VNO IN (SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?)`,
+            [queueId]
+        );
+        await connection.execute(
+            `DELETE FROM TREATMENT1_DRUG 
+             WHERE VNO IN (SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?)`,
+            [queueId]
+        );
+        await connection.execute(
+            `DELETE FROM TREATMENT1_MED_PROCEDURE 
+             WHERE VNO IN (SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?)`,
+            [queueId]
+        );
+        await connection.execute(
+            `DELETE FROM TREATMENT1_LABORATORY 
+             WHERE VNO IN (SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?)`,
+            [queueId]
+        );
+        await connection.execute(
+            `DELETE FROM TREATMENT1_RADIOLOGICAL 
+             WHERE VNO IN (SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?)`,
+            [queueId]
+        );
+
+        // ลบ TREATMENT1 ที่ผูกกับคิวนี้ (ถ้ามี)
+        await connection.execute(
+            'DELETE FROM TREATMENT1 WHERE QUEUE_ID = ?',
+            [queueId]
+        );
 
         // Delete queue
         const [result] = await connection.execute('DELETE FROM DAILY_QUEUE WHERE QUEUE_ID = ?', [queueId]);
