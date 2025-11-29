@@ -3,12 +3,23 @@ const router = express.Router();
 const dbPoolPromise = require('../config/db');
 const { ensureHNSequenceInfrastructure, generateNextHN } = require('../utils/hnSequence');
 
-// GET all patients
+// GET all patients with pagination
 router.get('/', async (req, res) => {
     let connection = null;
     try {
         const pool = await dbPoolPromise;
         connection = await pool.getConnection();
+        
+        // Pagination parameters
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(100, Math.max(10, parseInt(req.query.limit) || 50)); // Default 50, max 100
+        const offset = (page - 1) * limit;
+
+        // Get total count
+        const [countResult] = await connection.query('SELECT COUNT(*) as total FROM patient1');
+        const total = countResult[0].total;
+
+        // Get paginated data
         const [rows] = await connection.query(`
       SELECT 
         p.*,
@@ -26,13 +37,18 @@ router.get('/', async (req, res) => {
       LEFT JOIN ampher card_amp ON p.CARD_AMPHER_CODE = card_amp.AMPHER_CODE
       LEFT JOIN tumbol card_tumb ON p.CARD_TUMBOL_CODE = card_tumb.TUMBOL_CODE
       ORDER BY p.HNCODE
-      LIMIT 100
-    `);
+      LIMIT ? OFFSET ?
+    `, [limit, offset]);
 
         res.json({
             success: true,
             data: rows,
-            count: rows.length
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit)
+            }
         });
     } catch (error) {
         console.error('Error fetching patients:', error);
@@ -165,27 +181,35 @@ router.get('/:hn', async (req, res) => {
     }
 });
 
-// Search patients by name or HN
+// Search patients by name or HN - ดึงข้อมูลครบเหมือน GET by HN
 router.get('/search/:term', async (req, res) => {
+    let connection = null;
     try {
-        const db = await require('../config/db');
+        const pool = await dbPoolPromise;
+        connection = await pool.getConnection();
         const { term } = req.params;
         const searchTerm = `%${term}%`;
 
-        const [rows] = await db.execute(`
+        // ดึงข้อมูลครบเหมือน GET by HN เพื่อให้อัพเดทได้
+        const [rows] = await connection.query(`
       SELECT 
-        p.HNCODE, p.IDNO, p.PRENAME, p.NAME1, p.SURNAME, 
-        p.SEX, p.AGE, p.BDATE, p.TEL1, p.EMAIL1,
+        p.*,
         prov.PROVINCE_NAME,
         amp.AMPHER_NAME,
-        tumb.TUMBOL_NAME
+        tumb.TUMBOL_NAME,
+        card_prov.PROVINCE_NAME as CARD_PROVINCE_NAME,
+        card_amp.AMPHER_NAME as CARD_AMPHER_NAME,
+        card_tumb.TUMBOL_NAME as CARD_TUMBOL_NAME
       FROM patient1 p
       LEFT JOIN province prov ON p.PROVINCE_CODE = prov.PROVINCE_CODE
       LEFT JOIN ampher amp ON p.AMPHER_CODE = amp.AMPHER_CODE
       LEFT JOIN tumbol tumb ON p.TUMBOL_CODE = tumb.TUMBOL_CODE
+      LEFT JOIN province card_prov ON p.CARD_PROVINCE_CODE = card_prov.PROVINCE_CODE
+      LEFT JOIN ampher card_amp ON p.CARD_AMPHER_CODE = card_amp.AMPHER_CODE
+      LEFT JOIN tumbol card_tumb ON p.CARD_TUMBOL_CODE = card_tumb.TUMBOL_CODE
       WHERE p.HNCODE LIKE ? OR p.IDNO LIKE ? OR p.NAME1 LIKE ? OR p.SURNAME LIKE ?
       ORDER BY p.HNCODE
-      LIMIT 50
+      LIMIT 100
     `, [searchTerm, searchTerm, searchTerm, searchTerm]);
 
         res.json({
@@ -201,6 +225,10 @@ router.get('/search/:term', async (req, res) => {
             message: 'เกิดข้อผิดพลาดในการค้นหาข้อมูลผู้ป่วย',
             error: error.message
         });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
     }
 });
 
