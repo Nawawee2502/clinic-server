@@ -763,32 +763,36 @@ router.delete('/:queueId', async (req, res) => {
         connection = await dbPool.getConnection();
         await connection.beginTransaction();
 
-        // ลบข้อมูลลูกที่อ้างอิง VNO ของคิวนี้ก่อน (ใช้ subquery ตาม QUEUE_ID)
-        await connection.execute(
-            `DELETE FROM TREATMENT1_DIAGNOSIS 
-             WHERE VNO IN (SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?)`,
+        // หา VNO ทั้งหมดที่ผูกกับคิวนี้
+        const [treatments] = await connection.execute(
+            'SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?',
             [queueId]
         );
-        await connection.execute(
-            `DELETE FROM TREATMENT1_DRUG 
-             WHERE VNO IN (SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?)`,
-            [queueId]
-        );
-        await connection.execute(
-            `DELETE FROM TREATMENT1_MED_PROCEDURE 
-             WHERE VNO IN (SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?)`,
-            [queueId]
-        );
-        await connection.execute(
-            `DELETE FROM TREATMENT1_LABORATORY 
-             WHERE VNO IN (SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?)`,
-            [queueId]
-        );
-        await connection.execute(
-            `DELETE FROM TREATMENT1_RADIOLOGICAL 
-             WHERE VNO IN (SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?)`,
-            [queueId]
-        );
+
+        // ลบข้อมูลที่อ้างอิงแต่ละ VNO แบบวนลูป (เลี่ยงปัญหา subquery)
+        for (const row of treatments) {
+            const vno = row.VNO;
+            await connection.execute(
+                'DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?',
+                [vno]
+            );
+            await connection.execute(
+                'DELETE FROM TREATMENT1_DRUG WHERE VNO = ?',
+                [vno]
+            );
+            await connection.execute(
+                'DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?',
+                [vno]
+            );
+            await connection.execute(
+                'DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?',
+                [vno]
+            );
+            await connection.execute(
+                'DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?',
+                [vno]
+            );
+        }
 
         // ลบ TREATMENT1 ที่ผูกกับคิวนี้ (ถ้ามี)
         await connection.execute(
@@ -822,7 +826,14 @@ router.delete('/:queueId', async (req, res) => {
             }
         }
 
-        console.error('Error deleting queue:', error);
+        console.error('Error deleting queue:', {
+            message: error.message,
+            code: error.code,
+            errno: error.errno,
+            sqlState: error.sqlState,
+            sqlMessage: error.sqlMessage,
+            sql: error.sql
+        });
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการลบคิว',
