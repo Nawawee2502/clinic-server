@@ -5,9 +5,11 @@ const { ensureHNSequenceInfrastructure, generateNextHN } = require('../utils/hnS
 
 // GET all patients
 router.get('/', async (req, res) => {
+    let connection = null;
     try {
-        const db = await require('../config/db');
-        const [rows] = await db.execute(`
+        const pool = await dbPoolPromise;
+        connection = await pool.getConnection();
+        const [rows] = await connection.query(`
       SELECT 
         p.*,
         prov.PROVINCE_NAME,
@@ -39,6 +41,10 @@ router.get('/', async (req, res) => {
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูลผู้ป่วย',
             error: error.message
         });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
     }
 });
 
@@ -110,10 +116,12 @@ router.get('/check-hn/:hn', async (req, res) => {
 
 // GET patient by HN
 router.get('/:hn', async (req, res) => {
+    let connection = null;
     try {
-        const db = await require('../config/db');
+        const pool = await dbPoolPromise;
+        connection = await pool.getConnection();
         const { hn } = req.params;
-        const [rows] = await db.execute(`
+        const [rows] = await connection.query(`
       SELECT 
         p.*,
         prov.PROVINCE_NAME,
@@ -150,6 +158,10 @@ router.get('/:hn', async (req, res) => {
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูลผู้ป่วย',
             error: error.message
         });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
     }
 });
 
