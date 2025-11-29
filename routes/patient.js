@@ -224,7 +224,8 @@ router.get('/search/:term', async (req, res) => {
             searchParams.push(`%${searchWords[searchWords.length - 1]}%`);
         }
 
-        // ดึงข้อมูลครบเหมือน GET by HN เพื่อให้อัพเดทได้
+        // ดึงข้อมูลครบเหมือน GET by HN แต่ใช้ subquery เพื่อความเร็ว
+        // เริ่มต้นด้วยการค้นหา patient ก่อน แล้วค่อย JOIN address ทีหลัง
         const [rows] = await connection.query(`
       SELECT 
         p.*,
@@ -234,16 +235,19 @@ router.get('/search/:term', async (req, res) => {
         card_prov.PROVINCE_NAME as CARD_PROVINCE_NAME,
         card_amp.AMPHER_NAME as CARD_AMPHER_NAME,
         card_tumb.TUMBOL_NAME as CARD_TUMBOL_NAME
-      FROM patient1 p
+      FROM (
+        SELECT * FROM patient1 
+        WHERE ${searchConditions.join(' OR ')}
+        ORDER BY HNCODE
+        LIMIT 100
+      ) p
       LEFT JOIN province prov ON p.PROVINCE_CODE = prov.PROVINCE_CODE
       LEFT JOIN ampher amp ON p.AMPHER_CODE = amp.AMPHER_CODE
       LEFT JOIN tumbol tumb ON p.TUMBOL_CODE = tumb.TUMBOL_CODE
       LEFT JOIN province card_prov ON p.CARD_PROVINCE_CODE = card_prov.PROVINCE_CODE
       LEFT JOIN ampher card_amp ON p.CARD_AMPHER_CODE = card_amp.AMPHER_CODE
       LEFT JOIN tumbol card_tumb ON p.CARD_TUMBOL_CODE = card_tumb.TUMBOL_CODE
-      WHERE ${searchConditions.join(' OR ')}
       ORDER BY p.HNCODE
-      LIMIT 100
     `, searchParams);
 
         res.json({
