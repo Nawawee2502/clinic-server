@@ -105,6 +105,9 @@ router.get('/today', async (req, res) => {
                 p.TEL1,
                 p.SOCIAL_CARD as PATIENT_SOCIAL_CARD,
                 p.UCS_CARD as PATIENT_UCS_CARD,
+                p.DRUG_ALLERGY,
+                p.DISEASE1,
+                p.WEIGHT1,
                 -- VN if exists (check from TREATMENT1)
                 t.VNO,
                 t.STATUS1 as TREATMENT_STATUS
@@ -171,6 +174,9 @@ router.get('/all', async (req, res) => {
                 p.TEL1,
                 p.SOCIAL_CARD as PATIENT_SOCIAL_CARD,
                 p.UCS_CARD as PATIENT_UCS_CARD,
+                p.DRUG_ALLERGY,
+                p.DISEASE1,
+                p.WEIGHT1,
                 -- VN if exists (check from TREATMENT1)
                 t.VNO,
                 t.STATUS1 as TREATMENT_STATUS
