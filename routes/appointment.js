@@ -267,8 +267,8 @@ router.post('/', async (req, res) => {
         const db = await require('../config/db');
         const {
             HNCODE, APPOINTMENT_DATE, APPOINTMENT_TIME, REASON,
-            DOCTOR_CODE, CREATED_BY
-            // ✅ ลบ vnNumber ออก ให้สร้างเอง
+            DOCTOR_CODE, DOCTOR_NAME, NOTES, CREATED_BY
+            // ✅ เพิ่ม DOCTOR_NAME และ NOTES
         } = req.body;
 
         console.log('📥 Received appointment data:', req.body);
@@ -296,12 +296,34 @@ router.post('/', async (req, res) => {
         const runningNumber = vnCount[0].next_number.toString().padStart(3, '0');
         const vnNumber = `VN${buddhistYear}${month}${day}${runningNumber}`;
 
+        // ✅ ถ้ามี DOCTOR_NAME แต่ไม่มี DOCTOR_CODE ให้แปลงชื่อเป็นรหัส
+        let doctorCode = DOCTOR_CODE || null;
+        let doctorName = DOCTOR_NAME || null;
+        
+        if (DOCTOR_NAME && !DOCTOR_CODE) {
+            // ลองค้นหา DOCTOR_CODE จาก DOCTOR_NAME
+            try {
+                const [doctorRows] = await db.execute(
+                    'SELECT EMP_CODE, EMP_NAME FROM EMPLOYEE1 WHERE EMP_NAME = ? LIMIT 1',
+                    [DOCTOR_NAME]
+                );
+                if (doctorRows.length > 0) {
+                    doctorCode = doctorRows[0].EMP_CODE;
+                    doctorName = doctorRows[0].EMP_NAME;
+                }
+            } catch (err) {
+                console.warn('Could not find doctor by name:', err);
+            }
+        }
+
         const safeData = {
             HNCODE: HNCODE || null,
             APPOINTMENT_DATE: APPOINTMENT_DATE || null,
             APPOINTMENT_TIME: APPOINTMENT_TIME || null,
             REASON: REASON || null,
-            DOCTOR_CODE: DOCTOR_CODE || null,
+            DOCTOR_CODE: doctorCode,
+            DOCTOR_NAME: doctorName,
+            NOTES: NOTES || null,
             CREATED_BY: CREATED_BY || null,
             VN_NUMBER: vnNumber // ✅ ใช้ VN Number ที่สร้างใหม่
         };
@@ -328,19 +350,21 @@ router.post('/', async (req, res) => {
 
         const appointmentId = `APT${safeData.APPOINTMENT_DATE.replace(/-/g, '')}${countResult[0].next_number.toString().padStart(3, '0')}`;
 
-        // บันทึกพร้อม VN_NUMBER
+        // ✅ บันทึกพร้อม VN_NUMBER, NOTES และ DOCTOR_NAME
         const [result] = await db.execute(`
             INSERT INTO APPOINTMENT_SCHEDULE (
                 APPOINTMENT_ID, HNCODE, APPOINTMENT_DATE, APPOINTMENT_TIME,
-                REASON, DOCTOR_CODE, CREATED_BY, STATUS, VN_NUMBER
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'นัดไว้', ?)
+                REASON, NOTES, DOCTOR_CODE, DOCTOR_NAME, CREATED_BY, STATUS, VN_NUMBER
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'นัดไว้', ?)
         `, [
             appointmentId,
             safeData.HNCODE,
             safeData.APPOINTMENT_DATE,
             safeData.APPOINTMENT_TIME,
             safeData.REASON,
+            safeData.NOTES,
             safeData.DOCTOR_CODE,
+            safeData.DOCTOR_NAME,
             safeData.CREATED_BY,
             safeData.VN_NUMBER // ✅ VN Number รูปแบบใหม่
         ]);
@@ -376,7 +400,7 @@ router.put('/:id', async (req, res) => {
         const db = await require('../config/db');
         const { id } = req.params;
         const {
-            APPOINTMENT_DATE, APPOINTMENT_TIME, REASON, DOCTOR_CODE, STATUS
+            APPOINTMENT_DATE, APPOINTMENT_TIME, REASON, DOCTOR_CODE, DOCTOR_NAME, NOTES, STATUS
         } = req.body;
 
         // ตรวจสอบว่านัดหมายมีอยู่จริง
@@ -409,15 +433,36 @@ router.put('/:id', async (req, res) => {
             }
         }
 
+        // ✅ ถ้ามี DOCTOR_NAME แต่ไม่มี DOCTOR_CODE ให้แปลงชื่อเป็นรหัส
+        let doctorCode = DOCTOR_CODE || null;
+        let doctorName = DOCTOR_NAME || null;
+        
+        if (DOCTOR_NAME && !DOCTOR_CODE) {
+            try {
+                const [doctorRows] = await db.execute(
+                    'SELECT EMP_CODE, EMP_NAME FROM EMPLOYEE1 WHERE EMP_NAME = ? LIMIT 1',
+                    [DOCTOR_NAME]
+                );
+                if (doctorRows.length > 0) {
+                    doctorCode = doctorRows[0].EMP_CODE;
+                    doctorName = doctorRows[0].EMP_NAME;
+                }
+            } catch (err) {
+                console.warn('Could not find doctor by name:', err);
+            }
+        }
+
         const [result] = await db.execute(`
             UPDATE APPOINTMENT_SCHEDULE SET 
                 APPOINTMENT_DATE = COALESCE(?, APPOINTMENT_DATE),
                 APPOINTMENT_TIME = COALESCE(?, APPOINTMENT_TIME),
                 REASON = COALESCE(?, REASON),
+                NOTES = COALESCE(?, NOTES),
                 DOCTOR_CODE = COALESCE(?, DOCTOR_CODE),
+                DOCTOR_NAME = COALESCE(?, DOCTOR_NAME),
                 STATUS = COALESCE(?, STATUS)
             WHERE APPOINTMENT_ID = ?
-        `, [APPOINTMENT_DATE, APPOINTMENT_TIME, REASON, DOCTOR_CODE, STATUS, id]);
+        `, [APPOINTMENT_DATE, APPOINTMENT_TIME, REASON, NOTES, doctorCode, doctorName, STATUS, id]);
 
         res.json({
             success: true,
