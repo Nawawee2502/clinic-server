@@ -189,7 +189,7 @@ router.get('/search/:term', async (req, res) => {
         connection = await pool.getConnection();
         const { term } = req.params;
         const searchTerm = `%${term}%`;
-        
+
         // แยกคำค้นหาเป็น array (สำหรับค้นหาชื่อเต็ม)
         const searchWords = term.trim().split(/\s+/).filter(word => word.length > 0);
         const searchConditions = [];
@@ -619,16 +619,16 @@ router.put('/:hn', async (req, res) => {
 
         // Prevent server crash by always sending response
         if (!res.headersSent) {
-            res.status(500).json({
-                success: false,
-                message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลผู้ป่วย',
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลผู้ป่วย',
                 error: error.message,
                 details: process.env.NODE_ENV === 'development' ? {
                     code: error.code,
                     sqlState: error.sqlState,
                     sqlMessage: error.sqlMessage
                 } : undefined
-            });
+        });
         }
     }
 });
