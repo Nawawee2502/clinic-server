@@ -610,6 +610,7 @@ router.put('/:vno', async (req, res) => {
             STATUS1: toNull(STATUS1),
             PAYMENT_STATUS: toNull(PAYMENT_STATUS),
             TOTAL_AMOUNT: toNull(TOTAL_AMOUNT),
+            TREATMENT_FEE: req.body.TREATMENT_FEE ? parseFloat(req.body.TREATMENT_FEE) : null, // ✅ รองรับค่ารักษาแยก
             NET_AMOUNT: toNull(NET_AMOUNT)
         });
 
@@ -630,6 +631,7 @@ router.put('/:vno', async (req, res) => {
                 BP2 = COALESCE(?, BP2),
                 SPO2 = COALESCE(?, SPO2),
                 TOTAL_AMOUNT = COALESCE(?, TOTAL_AMOUNT),
+                TREATMENT_FEE = COALESCE(?, TREATMENT_FEE),
                 DISCOUNT_AMOUNT = COALESCE(?, DISCOUNT_AMOUNT),
                 NET_AMOUNT = COALESCE(?, NET_AMOUNT),
                 PAYMENT_STATUS = COALESCE(?, PAYMENT_STATUS),
@@ -656,6 +658,7 @@ router.put('/:vno', async (req, res) => {
             toNull(BP2),
             toNull(SPO2),
             toNull(TOTAL_AMOUNT) ? parseFloat(toNull(TOTAL_AMOUNT)) : null,
+            req.body.TREATMENT_FEE ? parseFloat(req.body.TREATMENT_FEE) : null, // ✅ ค่ารักษาแยก
             toNull(DISCOUNT_AMOUNT) ? parseFloat(toNull(DISCOUNT_AMOUNT)) : null,
             toNull(NET_AMOUNT) ? parseFloat(toNull(NET_AMOUNT)) : null,
             toNull(PAYMENT_STATUS),
