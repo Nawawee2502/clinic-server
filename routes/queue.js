@@ -766,50 +766,93 @@ router.delete('/:queueId', async (req, res) => {
     try {
         const { queueId } = req.params;
 
+        console.log(`🗑️ DELETE Queue Request: ${queueId}`);
+
         connection = await dbPool.getConnection();
         await connection.beginTransaction();
 
-        // หา VNO ทั้งหมดที่ผูกกับคิวนี้
-        const [treatments] = await connection.execute(
-            'SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ?',
+        // ✅ ตรวจสอบว่ามีคิวนี้อยู่จริงหรือไม่
+        const [queueCheck] = await connection.query(
+            'SELECT QUEUE_ID FROM DAILY_QUEUE WHERE QUEUE_ID = ?',
             [queueId]
         );
+
+        if (queueCheck.length === 0) {
+            await connection.rollback();
+            connection.release();
+            return res.status(404).json({
+                success: false,
+                message: 'ไม่พบคิวที่ต้องการลบ'
+            });
+        }
+
+        // หา VNO ทั้งหมดที่ผูกกับคิวนี้
+        const [treatments] = await connection.query(
+            'SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ? AND VNO IS NOT NULL AND VNO != ""',
+            [queueId]
+        );
+
+        console.log(`📋 Found ${treatments.length} treatment(s) for queue ${queueId}`);
 
         // ลบข้อมูลที่อ้างอิงแต่ละ VNO แบบวนลูป (เลี่ยงปัญหา subquery)
         for (const row of treatments) {
             const vno = row.VNO;
-            await connection.execute(
-                'DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?',
-                [vno]
-            );
-            await connection.execute(
-                'DELETE FROM TREATMENT1_DRUG WHERE VNO = ?',
-                [vno]
-            );
-            await connection.execute(
-                'DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?',
-                [vno]
-            );
-            await connection.execute(
-                'DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?',
-                [vno]
-            );
-            await connection.execute(
-                'DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?',
-                [vno]
-            );
+            
+            // ✅ ตรวจสอบว่า VNO มีค่าก่อนลบ
+            if (!vno || (typeof vno === 'string' && vno.trim() === '')) {
+                console.warn(`⚠️ Skipping empty VNO for queue ${queueId}`);
+                continue;
+            }
+
+            console.log(`🗑️ Deleting data for VNO: ${vno}`);
+
+            try {
+                await connection.query(
+                    'DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?',
+                    [vno]
+                );
+                await connection.query(
+                    'DELETE FROM TREATMENT1_DRUG WHERE VNO = ?',
+                    [vno]
+                );
+                await connection.query(
+                    'DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?',
+                    [vno]
+                );
+                await connection.query(
+                    'DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?',
+                    [vno]
+                );
+                await connection.query(
+                    'DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?',
+                    [vno]
+                );
+            } catch (deleteError) {
+                // ✅ ถ้าลบไม่ได้ (อาจไม่มีข้อมูล) ให้ข้ามไป ไม่ throw error
+                console.warn(`⚠️ Error deleting data for VNO ${vno}:`, deleteError.message);
+            }
         }
 
         // ลบ TREATMENT1 ที่ผูกกับคิวนี้ (ถ้ามี)
-        await connection.execute(
-            'DELETE FROM TREATMENT1 WHERE QUEUE_ID = ?',
+        try {
+            await connection.query(
+                'DELETE FROM TREATMENT1 WHERE QUEUE_ID = ?',
+                [queueId]
+            );
+            console.log(`✅ Deleted TREATMENT1 for queue ${queueId}`);
+        } catch (treatmentError) {
+            // ✅ ถ้าลบไม่ได้ (อาจไม่มีข้อมูล) ให้ข้ามไป
+            console.warn(`⚠️ Error deleting TREATMENT1:`, treatmentError.message);
+        }
+
+        // Delete queue
+        const [result] = await connection.query(
+            'DELETE FROM DAILY_QUEUE WHERE QUEUE_ID = ?',
             [queueId]
         );
 
-        // Delete queue
-        const [result] = await connection.execute('DELETE FROM DAILY_QUEUE WHERE QUEUE_ID = ?', [queueId]);
-
         if (result.affectedRows === 0) {
+            await connection.rollback();
             return res.status(404).json({
                 success: false,
                 message: 'ไม่พบคิวที่ต้องการลบ'
@@ -817,6 +860,7 @@ router.delete('/:queueId', async (req, res) => {
         }
 
         await connection.commit();
+        console.log(`✅ Successfully deleted queue ${queueId}`);
 
         res.json({
             success: true,
@@ -827,19 +871,22 @@ router.delete('/:queueId', async (req, res) => {
         if (connection) {
             try {
                 await connection.rollback();
+                console.log(`🔄 Transaction rolled back for queue ${req.params.queueId}`);
             } catch (rollbackError) {
-                console.error('Error rolling back transaction:', rollbackError);
+                console.error('❌ Error rolling back transaction:', rollbackError);
             }
         }
 
-        console.error('Error deleting queue:', {
+        console.error('❌ Error deleting queue:', {
+            queueId: req.params.queueId,
             message: error.message,
             code: error.code,
             errno: error.errno,
             sqlState: error.sqlState,
             sqlMessage: error.sqlMessage,
-            sql: error.sql
+            stack: error.stack
         });
+
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการลบคิว',
