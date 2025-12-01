@@ -1070,6 +1070,66 @@ router.get('/stats/revenue', async (req, res) => {
     }
 });
 
+// ✅ GET - เช็คจำนวนครั้งที่ใช้สิทธิ์บัตรทองในเดือนนี้
+router.get('/check/ucs-usage/:hncode', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { hncode } = req.params;
+
+        if (!hncode) {
+            return res.status(400).json({
+                success: false,
+                message: 'กรุณาระบุ HNCODE'
+            });
+        }
+
+        // ✅ ใช้เวลาไทยเพื่อหาเดือนปัจจุบัน
+        const thailandTime = getThailandTime();
+        const currentYear = thailandTime.getFullYear();
+        const currentMonth = thailandTime.getMonth() + 1; // getMonth() returns 0-11
+
+        // ✅ นับจำนวนครั้งที่ใช้สิทธิ์บัตรทองในเดือนนี้
+        // โดยนับจาก TREATMENT1 ที่:
+        // - HNNO = hncode
+        // - UCS_CARD = 'Y'
+        // - RDATE อยู่ในเดือนปัจจุบัน
+        // - STATUS1 ไม่ใช่ 'ยกเลิก' (นับเฉพาะที่เสร็จสิ้นแล้ว)
+        const [rows] = await db.execute(`
+            SELECT COUNT(*) as usage_count
+            FROM TREATMENT1 t
+            WHERE t.HNNO = ?
+              AND t.UCS_CARD = 'Y'
+              AND YEAR(t.RDATE) = ?
+              AND MONTH(t.RDATE) = ?
+              AND t.STATUS1 NOT IN ('ยกเลิก')
+        `, [hncode, currentYear, currentMonth]);
+
+        const usageCount = rows[0]?.usage_count || 0;
+        const maxUsage = 2; // จำกัด 2 ครั้งต่อเดือน
+        const isExceeded = usageCount >= maxUsage;
+
+        res.json({
+            success: true,
+            data: {
+                hncode: hncode,
+                usageCount: usageCount,
+                maxUsage: maxUsage,
+                isExceeded: isExceeded,
+                currentMonth: currentMonth,
+                currentYear: currentYear,
+                remainingUsage: Math.max(0, maxUsage - usageCount)
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error checking UCS usage:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการเช็คจำนวนครั้งที่ใช้สิทธิ์บัตรทอง',
+            error: error.message
+        });
+    }
+});
+
 // DELETE treatment
 router.delete('/:vno', async (req, res) => {
     const db = await require('../config/db');
