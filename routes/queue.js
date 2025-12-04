@@ -529,6 +529,23 @@ router.post('/checkin', async (req, res) => {
             WHERE APPOINTMENT_ID = ?
         `, [APPOINTMENT_ID]);
 
+        // ✅ สร้าง VN ใหม่ตามวันที่เช็คอินจริง (ไม่ใช่ VN จากวันที่นัด)
+        // สร้าง VN ก่อน commit เพื่อให้อยู่ใน transaction เดียวกัน
+        const thailandDate = formatDateForDB(thailandTime);
+        const buddhistYear = (thailandTime.getFullYear() + 543).toString().slice(-2);
+        const month = String(thailandTime.getMonth() + 1).padStart(2, '0');
+        const day = String(thailandTime.getDate()).padStart(2, '0');
+        
+        // หาเลขรันนิ่งสำหรับวันที่เช็คอิน (ไม่ใช่วันที่นัด)
+        const [vnCount] = await connection.execute(`
+            SELECT COUNT(*) + 1 as next_number
+            FROM TREATMENT1 
+            WHERE VNO LIKE ? AND DATE(SYSTEM_DATE) = ?
+        `, [`VN${buddhistYear}${month}${day}%`, thailandDate]);
+        
+        const runningNumber = vnCount[0].next_number.toString().padStart(3, '0');
+        const newVNO = `VN${buddhistYear}${month}${day}${runningNumber}`;
+
         await connection.commit();
 
         res.json({
@@ -536,7 +553,7 @@ router.post('/checkin', async (req, res) => {
             message: 'เช็คอินสำเร็จ',
             data: {
                 QUEUE_ID: queueId,
-                VNO: appointment.VN_NUMBER,
+                VNO: newVNO, // ✅ ใช้ VN ใหม่ตามวันที่เช็คอินจริง
                 QUEUE_NUMBER: nextQueueNumber,
                 HNCODE: appointment.HNCODE,
                 PATIENT_NAME: `${appointment.PRENAME || ''}${appointment.NAME1} ${appointment.SURNAME || ''}`.trim(),
