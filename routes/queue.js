@@ -315,6 +315,37 @@ router.post('/create', async (req, res) => {
 
         console.log('📅 Using Thailand date/time:', { queueDate, queueTimeStr });
 
+        // ✅ ตรวจสอบว่าผู้ป่วยนี้มีอยู่ในคิวที่ยังไม่ปิดแล้วหรือไม่
+        await connection.beginTransaction();
+        
+        const [existingQueueCheck] = await connection.execute(`
+            SELECT dq.QUEUE_ID, dq.STATUS, t.STATUS1 as TREATMENT_STATUS
+            FROM DAILY_QUEUE dq
+            LEFT JOIN TREATMENT1 t ON dq.QUEUE_ID = t.QUEUE_ID
+            WHERE dq.HNCODE = ? 
+              AND DATE(dq.QUEUE_DATE) = ?
+              AND dq.STATUS NOT IN ('ยกเลิกคิว')
+        `, [HNCODE.trim(), queueDate]);
+
+        if (existingQueueCheck.length > 0) {
+            // ตรวจสอบสถานะของคิวที่มีอยู่
+            const activeQueue = existingQueueCheck.find(q => {
+                const status = q.STATUS || q.TREATMENT_STATUS || '';
+                const blockedStatuses = ['รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน', 'ชำระเงินแล้ว'];
+                return blockedStatuses.includes(status);
+            });
+
+            if (activeQueue) {
+                await connection.rollback();
+                console.log('⚠️ Patient already has an active queue');
+                return res.status(409).json({
+                    success: false,
+                    message: `ผู้ป่วย HN: ${HNCODE} มีอยู่ในคิวแล้ว (สถานะ: ${activeQueue.STATUS || activeQueue.TREATMENT_STATUS}) ไม่สามารถเพิ่มได้`,
+                    existingQueueId: activeQueue.QUEUE_ID
+                });
+            }
+        }
+
         // Get next queue number for today (Thailand date)
         console.log('🔢 Getting next queue number...');
         const [queueCheck] = await connection.execute(`
@@ -329,10 +360,6 @@ router.post('/create', async (req, res) => {
         // Generate Queue ID using Thailand date
         const queueId = generateQueueId(nextQueueNumber, thailandTime);
         console.log('🆔 Generated Queue ID:', queueId);
-
-        // Start transaction
-        console.log('🔄 Starting transaction...');
-        await connection.beginTransaction();
 
         // Insert queue record พร้อม SOCIAL_CARD และ UCS_CARD
         console.log('💾 Inserting queue record...');
