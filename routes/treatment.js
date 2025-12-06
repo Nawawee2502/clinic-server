@@ -1096,15 +1096,26 @@ router.get('/check/ucs-usage/:hncode', async (req, res) => {
         // - HNNO = hncode
         // - UCS_CARD = 'Y'
         // - RDATE อยู่ในเดือนปัจจุบัน
-        // - STATUS1 ไม่ใช่ 'ยกเลิก' (นับเฉพาะที่เสร็จสิ้นแล้ว)
+        // - STATUS1 ไม่ใช่ 'ยกเลิก'
+        // - ✅ ต้องมี QUEUE_ID ที่ยังอยู่ใน DAILY_QUEUE (ไม่ถูกลบ) หรือไม่มี QUEUE_ID แต่ STATUS1 เสร็จสิ้นแล้ว
+        // ✅ หมายเหตุ: ถ้าลบคิวแล้ว TREATMENT1 จะถูกลบไปด้วย ดังนั้นจะนับเฉพาะ TREATMENT1 ที่ยังมี queue อยู่
         const [rows] = await db.execute(`
-            SELECT COUNT(*) as usage_count
+            SELECT COUNT(DISTINCT t.VNO) as usage_count
             FROM TREATMENT1 t
+            LEFT JOIN DAILY_QUEUE dq ON t.QUEUE_ID = dq.QUEUE_ID
             WHERE t.HNNO = ?
               AND t.UCS_CARD = 'Y'
               AND YEAR(t.RDATE) = ?
               AND MONTH(t.RDATE) = ?
               AND t.STATUS1 NOT IN ('ยกเลิก')
+              AND (
+                  -- ✅ ถ้ามี QUEUE_ID ต้องมี queue อยู่จริงใน DAILY_QUEUE (ไม่ถูกลบ)
+                  (t.QUEUE_ID IS NOT NULL AND t.QUEUE_ID != '' AND dq.QUEUE_ID IS NOT NULL)
+                  OR
+                  -- ✅ ถ้าไม่มี QUEUE_ID (สร้างโดยตรงไม่ผ่านคิว) ให้เช็ค STATUS1 ว่าเสร็จสิ้นแล้ว
+                  (t.QUEUE_ID IS NULL OR t.QUEUE_ID = '')
+                  AND t.STATUS1 IN ('ชำระเงินแล้ว', 'ปิดการรักษา', 'เสร็จแล้ว', 'รอชำระเงิน')
+              )
         `, [hncode, currentYear, currentMonth]);
 
         const usageCount = rows[0]?.usage_count || 0;
