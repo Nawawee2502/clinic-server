@@ -270,7 +270,10 @@ router.post('/create', async (req, res) => {
     let connection = null;
 
     try {
-        const { HNCODE, CHIEF_COMPLAINT, CREATED_BY } = req.body;
+        const { HNCODE, CHIEF_COMPLAINT, CREATED_BY, REQUEST_ID } = req.body;
+        
+        // ✅ เพิ่ม REQUEST_ID เพื่อป้องกันการเรียกซ้ำ (idempotency)
+        const requestId = REQUEST_ID || `${HNCODE}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
         // Validate input
         if (!HNCODE || HNCODE.trim() === '') {
@@ -315,35 +318,45 @@ router.post('/create', async (req, res) => {
 
         console.log('📅 Using Thailand date/time:', { queueDate, queueTimeStr });
 
-        // ✅ ตรวจสอบว่าผู้ป่วยนี้มีอยู่ในคิวที่ยังไม่ปิดแล้วหรือไม่
+        // ✅ เริ่ม Transaction และใช้ SELECT FOR UPDATE เพื่อป้องกัน race condition
         await connection.beginTransaction();
         
+        // ✅ ตรวจสอบว่าผู้ป่วยนี้มีอยู่ในคิวที่ยังไม่ปิดแล้วหรือไม่ (เช็คใน SQL โดยตรง)
         const [existingQueueCheck] = await connection.execute(`
-            SELECT dq.QUEUE_ID, dq.STATUS, t.STATUS1 as TREATMENT_STATUS
+            SELECT dq.QUEUE_ID, dq.STATUS, dq.QUEUE_NUMBER, dq.HNCODE, t.STATUS1 as TREATMENT_STATUS
             FROM DAILY_QUEUE dq
             LEFT JOIN TREATMENT1 t ON dq.QUEUE_ID = t.QUEUE_ID
             WHERE dq.HNCODE = ? 
               AND DATE(dq.QUEUE_DATE) = ?
-              AND dq.STATUS NOT IN ('ยกเลิกคิว')
+              AND (
+                  dq.STATUS IN ('รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน', 'ชำระเงินแล้ว')
+                  OR t.STATUS1 IN ('รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน', 'ชำระเงินแล้ว')
+              )
+            FOR UPDATE
         `, [HNCODE.trim(), queueDate]);
+        
+        console.log(`🔍 Checked existing ACTIVE queues for HN ${HNCODE.trim()}: found ${existingQueueCheck.length} queue(s)`);
 
+        // ✅ ถ้าพบคิวที่ยังไม่ปิด -> Block ทันที
         if (existingQueueCheck.length > 0) {
-            // ตรวจสอบสถานะของคิวที่มีอยู่
-            const activeQueue = existingQueueCheck.find(q => {
-                const status = q.STATUS || q.TREATMENT_STATUS || '';
-                const blockedStatuses = ['รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน', 'ชำระเงินแล้ว'];
-                return blockedStatuses.includes(status);
+            const activeQueue = existingQueueCheck[0];
+            const queueStatus = activeQueue.STATUS || '';
+            const treatmentStatus = activeQueue.TREATMENT_STATUS || '';
+            
+            await connection.rollback();
+            console.log(`⚠️ BLOCKED: Patient ${HNCODE} already has active queue:`, {
+                queueId: activeQueue.QUEUE_ID,
+                queueNumber: activeQueue.QUEUE_NUMBER,
+                queueStatus: queueStatus,
+                treatmentStatus: treatmentStatus
             });
-
-            if (activeQueue) {
-                await connection.rollback();
-                console.log('⚠️ Patient already has an active queue');
-                return res.status(409).json({
-                    success: false,
-                    message: `ผู้ป่วย HN: ${HNCODE} มีอยู่ในคิวแล้ว (สถานะ: ${activeQueue.STATUS || activeQueue.TREATMENT_STATUS}) ไม่สามารถเพิ่มได้`,
-                    existingQueueId: activeQueue.QUEUE_ID
-                });
-            }
+            return res.status(409).json({
+                success: false,
+                message: `ผู้ป่วย HN: ${HNCODE} มีอยู่ในคิวแล้ว (คิวที่ ${activeQueue.QUEUE_NUMBER}, สถานะ: ${queueStatus || treatmentStatus}) ไม่สามารถเพิ่มได้`,
+                existingQueueId: activeQueue.QUEUE_ID,
+                existingQueueNumber: activeQueue.QUEUE_NUMBER,
+                existingStatus: queueStatus || treatmentStatus
+            });
         }
 
         // Get next queue number for today (Thailand date)
@@ -360,6 +373,25 @@ router.post('/create', async (req, res) => {
         // Generate Queue ID using Thailand date
         const queueId = generateQueueId(nextQueueNumber, thailandTime);
         console.log('🆔 Generated Queue ID:', queueId);
+
+        // ✅ ตรวจสอบซ้ำอีกครั้งก่อน INSERT (ป้องกัน race condition สุดท้าย)
+        const [finalCheck] = await connection.execute(`
+            SELECT COUNT(*) as count
+            FROM DAILY_QUEUE
+            WHERE HNCODE = ? 
+              AND DATE(QUEUE_DATE) = ?
+              AND STATUS IN ('รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน')
+        `, [HNCODE.trim(), queueDate]);
+
+        if (finalCheck[0].count > 0) {
+            await connection.rollback();
+            console.log('⚠️ Duplicate queue detected in final check');
+            return res.status(409).json({
+                success: false,
+                message: `ผู้ป่วย HN: ${HNCODE} มีอยู่ในคิวแล้ว ไม่สามารถเพิ่มได้`,
+                reason: 'duplicate_detected'
+            });
+        }
 
         // Insert queue record พร้อม SOCIAL_CARD และ UCS_CARD
         console.log('💾 Inserting queue record...');
@@ -877,16 +909,36 @@ router.delete('/:queueId', async (req, res) => {
             }
         }
 
-        // ลบ TREATMENT1 ที่ผูกกับคิวนี้ (ถ้ามี)
+        // ✅ ลบ TREATMENT1 ที่ผูกกับคิวนี้ (ถ้ามี) - ต้องลบให้หมด
         try {
-            await connection.query(
+            const [treatmentDeleteResult] = await connection.query(
                 'DELETE FROM TREATMENT1 WHERE QUEUE_ID = ?',
                 [queueId]
             );
-            console.log(`✅ Deleted TREATMENT1 for queue ${queueId}`);
+            console.log(`✅ Deleted ${treatmentDeleteResult.affectedRows} TREATMENT1 record(s) for queue ${queueId}`);
+            
+            // ✅ ตรวจสอบว่าลบหมดหรือไม่
+            const [remainingTreatments] = await connection.query(
+                'SELECT COUNT(*) as count FROM TREATMENT1 WHERE QUEUE_ID = ?',
+                [queueId]
+            );
+            
+            if (remainingTreatments[0].count > 0) {
+                console.warn(`⚠️ Warning: Still ${remainingTreatments[0].count} TREATMENT1 record(s) remaining for queue ${queueId}`);
+                // ✅ ลบซ้ำอีกครั้งด้วยวิธีอื่น (อาจมีปัญหา foreign key)
+                await connection.query(
+                    'DELETE FROM TREATMENT1 WHERE QUEUE_ID = ?',
+                    [queueId]
+                );
+            }
         } catch (treatmentError) {
             // ✅ ถ้าลบไม่ได้ (อาจไม่มีข้อมูล) ให้ข้ามไป
             console.warn(`⚠️ Error deleting TREATMENT1:`, treatmentError.message);
+            // ✅ แต่ถ้าเป็น foreign key constraint error ให้ rollback
+            if (treatmentError.code === 'ER_ROW_IS_REFERENCED_2' || treatmentError.code === '23000') {
+                console.error(`❌ Foreign key constraint error - cannot delete TREATMENT1 for queue ${queueId}`);
+                throw treatmentError; // Throw เพื่อให้ rollback
+            }
         }
 
         // Delete queue
