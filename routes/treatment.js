@@ -454,7 +454,23 @@ router.post('/', async (req, res) => {
         let socialCard = null;
         let ucsCard = null;
 
+        // ✅ ตรวจสอบว่ามี TREATMENT1 สำหรับ QUEUE_ID นี้อยู่แล้วหรือไม่ (ป้องกันการสร้างซ้ำ)
         if (QUEUE_ID) {
+            const [existingTreatment] = await connection.execute(`
+                SELECT VNO, STATUS1 FROM TREATMENT1 WHERE QUEUE_ID = ? LIMIT 1
+            `, [QUEUE_ID]);
+
+            if (existingTreatment.length > 0) {
+                await connection.rollback();
+                console.log(`⚠️ TREATMENT1 already exists for QUEUE_ID: ${QUEUE_ID}, VNO: ${existingTreatment[0].VNO}`);
+                return res.status(409).json({
+                    success: false,
+                    message: `คิวนี้มี TREATMENT1 อยู่แล้ว (VNO: ${existingTreatment[0].VNO}) ไม่สามารถสร้างซ้ำได้`,
+                    existingVNO: existingTreatment[0].VNO,
+                    existingStatus: existingTreatment[0].STATUS1
+                });
+            }
+
             const [queueData] = await connection.execute(`
                 SELECT SOCIAL_CARD, UCS_CARD FROM DAILY_QUEUE WHERE QUEUE_ID = ?
             `, [QUEUE_ID]);

@@ -82,6 +82,7 @@ router.get('/today', async (req, res) => {
 
         console.log(`📅 Fetching queue for Thailand date: ${thailandDate}`);
 
+        // ✅ ใช้ subquery เพื่อดึง TREATMENT1 ล่าสุดสำหรับแต่ละ QUEUE_ID (ป้องกันหลายแถว)
         const [rows] = await db.execute(`
             SELECT 
                 dq.QUEUE_ID,
@@ -108,12 +109,17 @@ router.get('/today', async (req, res) => {
                 p.DRUG_ALLERGY,
                 p.DISEASE1,
                 p.WEIGHT1,
-                -- VN if exists (check from TREATMENT1)
-                t.VNO,
-                t.STATUS1 as TREATMENT_STATUS
+                -- VN if exists (check from TREATMENT1) - ใช้ subquery เพื่อดึง TREATMENT1 ล่าสุด
+                (SELECT t1.VNO FROM TREATMENT1 t1 
+                 WHERE t1.QUEUE_ID = dq.QUEUE_ID 
+                 ORDER BY t1.SYSTEM_DATE DESC, t1.SYSTEM_TIME DESC 
+                 LIMIT 1) as VNO,
+                (SELECT t2.STATUS1 FROM TREATMENT1 t2 
+                 WHERE t2.QUEUE_ID = dq.QUEUE_ID 
+                 ORDER BY t2.SYSTEM_DATE DESC, t2.SYSTEM_TIME DESC 
+                 LIMIT 1) as TREATMENT_STATUS
             FROM DAILY_QUEUE dq
             LEFT JOIN patient1 p ON dq.HNCODE = p.HNCODE
-            LEFT JOIN TREATMENT1 t ON dq.QUEUE_ID = t.QUEUE_ID
             WHERE DATE(dq.QUEUE_DATE) = ?
             ORDER BY dq.QUEUE_NUMBER
         `, [thailandDate]);
@@ -151,6 +157,7 @@ router.get('/all', async (req, res) => {
 
         console.log(`📅 Fetching all queue (no date filter)`);
 
+        // ✅ ใช้ subquery เพื่อดึง TREATMENT1 ล่าสุดสำหรับแต่ละ QUEUE_ID (ป้องกันหลายแถว)
         const [rows] = await db.execute(`
             SELECT 
                 dq.QUEUE_ID,
@@ -177,12 +184,17 @@ router.get('/all', async (req, res) => {
                 p.DRUG_ALLERGY,
                 p.DISEASE1,
                 p.WEIGHT1,
-                -- VN if exists (check from TREATMENT1)
-                t.VNO,
-                t.STATUS1 as TREATMENT_STATUS
+                -- VN if exists (check from TREATMENT1) - ใช้ subquery เพื่อดึง TREATMENT1 ล่าสุด
+                (SELECT t1.VNO FROM TREATMENT1 t1 
+                 WHERE t1.QUEUE_ID = dq.QUEUE_ID 
+                 ORDER BY t1.SYSTEM_DATE DESC, t1.SYSTEM_TIME DESC 
+                 LIMIT 1) as VNO,
+                (SELECT t2.STATUS1 FROM TREATMENT1 t2 
+                 WHERE t2.QUEUE_ID = dq.QUEUE_ID 
+                 ORDER BY t2.SYSTEM_DATE DESC, t2.SYSTEM_TIME DESC 
+                 LIMIT 1) as TREATMENT_STATUS
             FROM DAILY_QUEUE dq
             LEFT JOIN patient1 p ON dq.HNCODE = p.HNCODE
-            LEFT JOIN TREATMENT1 t ON dq.QUEUE_ID = t.QUEUE_ID
             ORDER BY dq.QUEUE_DATE DESC, dq.QUEUE_NUMBER
         `);
 
@@ -322,15 +334,27 @@ router.post('/create', async (req, res) => {
         await connection.beginTransaction();
         
         // ✅ ตรวจสอบว่าผู้ป่วยนี้มีอยู่ในคิวที่ยังไม่ปิดแล้วหรือไม่ (เช็คใน SQL โดยตรง)
+        // ✅ ใช้ DISTINCT เพื่อป้องกันหลายแถวถ้ามี TREATMENT1 หลายตัว
         const [existingQueueCheck] = await connection.execute(`
-            SELECT dq.QUEUE_ID, dq.STATUS, dq.QUEUE_NUMBER, dq.HNCODE, t.STATUS1 as TREATMENT_STATUS
+            SELECT DISTINCT
+                dq.QUEUE_ID, 
+                dq.STATUS, 
+                dq.QUEUE_NUMBER, 
+                dq.HNCODE,
+                (SELECT t.STATUS1 FROM TREATMENT1 t 
+                 WHERE t.QUEUE_ID = dq.QUEUE_ID 
+                 ORDER BY t.SYSTEM_DATE DESC, t.SYSTEM_TIME DESC 
+                 LIMIT 1) as TREATMENT_STATUS
             FROM DAILY_QUEUE dq
-            LEFT JOIN TREATMENT1 t ON dq.QUEUE_ID = t.QUEUE_ID
             WHERE dq.HNCODE = ? 
               AND DATE(dq.QUEUE_DATE) = ?
               AND (
                   dq.STATUS IN ('รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน', 'ชำระเงินแล้ว')
-                  OR t.STATUS1 IN ('รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน', 'ชำระเงินแล้ว')
+                  OR EXISTS (
+                      SELECT 1 FROM TREATMENT1 t 
+                      WHERE t.QUEUE_ID = dq.QUEUE_ID 
+                      AND t.STATUS1 IN ('รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน', 'ชำระเงินแล้ว')
+                  )
               )
             FOR UPDATE
         `, [HNCODE.trim(), queueDate]);
@@ -375,12 +399,20 @@ router.post('/create', async (req, res) => {
         console.log('🆔 Generated Queue ID:', queueId);
 
         // ✅ ตรวจสอบซ้ำอีกครั้งก่อน INSERT (ป้องกัน race condition สุดท้าย)
+        // ✅ เช็คทั้งจาก DAILY_QUEUE.STATUS และ TREATMENT1.STATUS1
         const [finalCheck] = await connection.execute(`
-            SELECT COUNT(*) as count
-            FROM DAILY_QUEUE
-            WHERE HNCODE = ? 
-              AND DATE(QUEUE_DATE) = ?
-              AND STATUS IN ('รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน')
+            SELECT COUNT(DISTINCT dq.QUEUE_ID) as count
+            FROM DAILY_QUEUE dq
+            WHERE dq.HNCODE = ? 
+              AND DATE(dq.QUEUE_DATE) = ?
+              AND (
+                  dq.STATUS IN ('รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน', 'ชำระเงินแล้ว')
+                  OR EXISTS (
+                      SELECT 1 FROM TREATMENT1 t 
+                      WHERE t.QUEUE_ID = dq.QUEUE_ID 
+                      AND t.STATUS1 IN ('รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน', 'ชำระเงินแล้ว')
+                  )
+              )
         `, [HNCODE.trim(), queueDate]);
 
         if (finalCheck[0].count > 0) {
