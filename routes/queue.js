@@ -847,8 +847,8 @@ router.delete('/:queueId', async (req, res) => {
         connection = await dbPool.getConnection();
         await connection.beginTransaction();
 
-        // ✅ ตรวจสอบว่ามีคิวนี้อยู่จริงหรือไม่
-        const [queueCheck] = await connection.query(
+        // ✅ ตรวจสอบว่ามีคิวนี้อยู่จริงหรือไม่ (ใช้ execute แทน query)
+        const [queueCheck] = await connection.execute(
             'SELECT QUEUE_ID FROM DAILY_QUEUE WHERE QUEUE_ID = ?',
             [queueId]
         );
@@ -862,13 +862,20 @@ router.delete('/:queueId', async (req, res) => {
             });
         }
 
-        // หา VNO ทั้งหมดที่ผูกกับคิวนี้
-        const [treatments] = await connection.query(
-            'SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ? AND VNO IS NOT NULL AND VNO != ""',
-            [queueId]
-        );
-
-        console.log(`📋 Found ${treatments.length} treatment(s) for queue ${queueId}`);
+        // ✅ หา VNO ทั้งหมดที่ผูกกับคิวนี้ (ใช้ execute แทน query)
+        let treatments = [];
+        try {
+            const [treatmentsResult] = await connection.execute(
+                'SELECT VNO FROM TREATMENT1 WHERE QUEUE_ID = ? AND VNO IS NOT NULL AND VNO != ""',
+                [queueId]
+            );
+            treatments = treatmentsResult || [];
+            console.log(`📋 Found ${treatments.length} treatment(s) for queue ${queueId}`);
+        } catch (treatmentsError) {
+            console.warn(`⚠️ Error fetching treatments for queue ${queueId}:`, treatmentsError.message);
+            // ถ้า error ก็ข้ามไป ไม่ throw (บางกรณีอาจไม่มี TREATMENT1)
+            treatments = [];
+        }
 
         // ลบข้อมูลที่อ้างอิงแต่ละ VNO แบบวนลูป (เลี่ยงปัญหา subquery)
         for (const row of treatments) {
@@ -883,66 +890,72 @@ router.delete('/:queueId', async (req, res) => {
             console.log(`🗑️ Deleting data for VNO: ${vno}`);
 
             try {
-                await connection.query(
+                // ✅ ใช้ execute แทน query
+                await connection.execute(
                     'DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?',
                     [vno]
                 );
-                await connection.query(
+                await connection.execute(
                     'DELETE FROM TREATMENT1_DRUG WHERE VNO = ?',
                     [vno]
                 );
-                await connection.query(
+                await connection.execute(
                     'DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?',
                     [vno]
                 );
-                await connection.query(
+                await connection.execute(
                     'DELETE FROM TREATMENT1_LABORATORY WHERE VNO = ?',
                     [vno]
                 );
-                await connection.query(
+                await connection.execute(
                     'DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?',
                     [vno]
                 );
+                console.log(`✅ Successfully deleted all related data for VNO: ${vno}`);
             } catch (deleteError) {
                 // ✅ ถ้าลบไม่ได้ (อาจไม่มีข้อมูล) ให้ข้ามไป ไม่ throw error
                 console.warn(`⚠️ Error deleting data for VNO ${vno}:`, deleteError.message);
+                // ✅ ถ้าเป็น foreign key constraint error ให้ log แต่ไม่ throw (จะจัดการทีหลัง)
+                if (deleteError.code === 'ER_ROW_IS_REFERENCED_2' || deleteError.code === '23000') {
+                    console.warn(`⚠️ Foreign key constraint for VNO ${vno} - will try to delete TREATMENT1 anyway`);
+                }
             }
         }
 
         // ✅ ลบ TREATMENT1 ที่ผูกกับคิวนี้ (ถ้ามี) - ต้องลบให้หมด
         try {
-            const [treatmentDeleteResult] = await connection.query(
+            // ✅ ใช้ execute แทน query
+            const [treatmentDeleteResult] = await connection.execute(
                 'DELETE FROM TREATMENT1 WHERE QUEUE_ID = ?',
                 [queueId]
             );
             console.log(`✅ Deleted ${treatmentDeleteResult.affectedRows} TREATMENT1 record(s) for queue ${queueId}`);
             
             // ✅ ตรวจสอบว่าลบหมดหรือไม่
-            const [remainingTreatments] = await connection.query(
+            const [remainingTreatments] = await connection.execute(
                 'SELECT COUNT(*) as count FROM TREATMENT1 WHERE QUEUE_ID = ?',
                 [queueId]
             );
             
             if (remainingTreatments[0].count > 0) {
                 console.warn(`⚠️ Warning: Still ${remainingTreatments[0].count} TREATMENT1 record(s) remaining for queue ${queueId}`);
-                // ✅ ลบซ้ำอีกครั้งด้วยวิธีอื่น (อาจมีปัญหา foreign key)
-                await connection.query(
+                // ✅ ลบซ้ำอีกครั้ง
+                const [retryResult] = await connection.execute(
                     'DELETE FROM TREATMENT1 WHERE QUEUE_ID = ?',
                     [queueId]
                 );
+                console.log(`✅ Retry deleted ${retryResult.affectedRows} TREATMENT1 record(s)`);
             }
         } catch (treatmentError) {
-            // ✅ ถ้าลบไม่ได้ (อาจไม่มีข้อมูล) ให้ข้ามไป
+            // ✅ ถ้าลบไม่ได้ (อาจไม่มีข้อมูล) ให้ log แต่ไม่ throw (เพื่อให้ลบ queue ได้)
             console.warn(`⚠️ Error deleting TREATMENT1:`, treatmentError.message);
-            // ✅ แต่ถ้าเป็น foreign key constraint error ให้ rollback
-            if (treatmentError.code === 'ER_ROW_IS_REFERENCED_2' || treatmentError.code === '23000') {
-                console.error(`❌ Foreign key constraint error - cannot delete TREATMENT1 for queue ${queueId}`);
-                throw treatmentError; // Throw เพื่อให้ rollback
-            }
+            console.warn(`⚠️ Treatment error code:`, treatmentError.code);
+            // ✅ ไม่ throw error เพื่อให้สามารถลบ queue ได้แม้ว่าจะลบ TREATMENT1 ไม่ได้
+            // (บางกรณี TREATMENT1 อาจถูกลบไปแล้วหรือไม่มีอยู่)
         }
 
-        // Delete queue
-        const [result] = await connection.query(
+        // ✅ Delete queue (ใช้ execute แทน query)
+        const [result] = await connection.execute(
             'DELETE FROM DAILY_QUEUE WHERE QUEUE_ID = ?',
             [queueId]
         );
