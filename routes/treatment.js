@@ -708,47 +708,78 @@ router.put('/:vno', async (req, res) => {
         }
 
         if (drugs && Array.isArray(drugs) && drugs.length > 0) {
-            await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
+            try {
+                await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
+            } catch (deleteError) {
+                console.error('Error deleting existing drugs:', deleteError);
+                // Continue anyway
+            }
 
             for (const drug of drugs) {
-                if (drug.DRUG_CODE) {
-                    let unitCode = toNull(drug.UNIT_CODE) || 'TAB';
+                try {
+                    if (drug.DRUG_CODE) {
+                        let unitCode = toNull(drug.UNIT_CODE) || 'TAB';
 
-                    const [unitExists] = await connection.execute(
-                        'SELECT UNIT_CODE FROM TABLE_UNIT WHERE UNIT_CODE = ?',
-                        [unitCode]
-                    );
+                        const [unitExists] = await connection.execute(
+                            'SELECT UNIT_CODE FROM TABLE_UNIT WHERE UNIT_CODE = ?',
+                            [unitCode]
+                        );
 
-                    if (unitExists.length === 0) {
-                        console.warn(`Unit code ${unitCode} not found, using TAB instead`);
-                        unitCode = 'TAB';
+                        if (unitExists.length === 0) {
+                            console.warn(`Unit code ${unitCode} not found, using TAB instead`);
+                            unitCode = 'TAB';
+                        }
+
+                        // Parse numeric values properly (handle 0 correctly)
+                        const qty = parseNumeric(drug.QTY);
+                        const unitPrice = parseNumeric(drug.UNIT_PRICE);
+                        const amt = parseNumeric(drug.AMT);
+
+                        await connection.execute(`
+                            INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        `, [
+                            vno,
+                            toNull(drug.DRUG_CODE),
+                            qty !== null ? qty : 1,
+                            unitCode,
+                            unitPrice !== null ? unitPrice : 0,
+                            amt !== null ? amt : 0,
+                            toNull(drug.NOTE1) || '',
+                            toNull(drug.TIME1) || ''
+                        ]);
+                    } else {
+                        console.warn('Drug missing DRUG_CODE, skipping:', drug);
                     }
-
-                    await connection.execute(`
-                        INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    `, [
-                        vno,
-                        toNull(drug.DRUG_CODE),
-                        toNull(drug.QTY) || 1,
-                        unitCode,
-                        toNull(drug.UNIT_PRICE) || 0,
-                        toNull(drug.AMT) || 0,
-                        toNull(drug.NOTE1) || '',
-                        toNull(drug.TIME1) || ''
-                    ]);
+                } catch (drugError) {
+                    console.error('Error inserting drug:', {
+                        error: drugError.message,
+                        code: drugError.code,
+                        sqlState: drugError.sqlState,
+                        drug: drug
+                    });
+                    // Continue with next drug instead of failing entire update
                 }
             }
         }
 
         if (procedures && Array.isArray(procedures) && procedures.length > 0) {
-            await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
+            try {
+                await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
+            } catch (deleteError) {
+                console.error('Error deleting existing procedures:', deleteError);
+                // Continue anyway
+            }
 
             for (const proc of procedures) {
-                let procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE);
-                const procedureName = toNull(proc.PROCEDURE_NAME) || 'หัตถการที่ไม่ระบุชื่อ';
+                try {
+                    let procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE);
+                    const procedureName = toNull(proc.PROCEDURE_NAME) || toNull(proc.procedureName) || 'หัตถการที่ไม่ระบุชื่อ';
 
-                if (procedureCode) {
+                    if (!procedureCode) {
+                        console.warn('Procedure missing code, skipping:', proc);
+                        continue;
+                    }
                     if (procedureCode.length > 15) {
                         procedureCode = procedureCode.substring(0, 15);
                     }
@@ -778,6 +809,11 @@ router.put('/:vno', async (req, res) => {
 
                     await ensureProcedureExists(connection, procedureCode, procedureName);
 
+                    // Parse numeric values properly (handle 0 correctly)
+                    const procQty = parseNumeric(proc.QTY);
+                    const procUnitPrice = parseNumeric(proc.UNIT_PRICE);
+                    const procAmt = parseNumeric(proc.AMT);
+
                     try {
                         await connection.execute(`
                             INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
@@ -785,10 +821,10 @@ router.put('/:vno', async (req, res) => {
                         `, [
                             vno,
                             procedureCode,
-                            toNull(proc.QTY) || 1,
+                            procQty !== null ? procQty : 1,
                             unitCode,
-                            toNull(proc.UNIT_PRICE) || 0,
-                            toNull(proc.AMT) || 0
+                            procUnitPrice !== null ? procUnitPrice : 0,
+                            procAmt !== null ? procAmt : 0
                         ]);
                         console.log(`Successfully inserted procedure: ${procedureCode}`);
                     } catch (procError) {
@@ -807,16 +843,24 @@ router.put('/:vno', async (req, res) => {
                             `, [
                                 vno,
                                 newCode,
-                                toNull(proc.QTY) || 1,
+                                procQty !== null ? procQty : 1,
                                 unitCode,
-                                toNull(proc.UNIT_PRICE) || 0,
-                                toNull(proc.AMT) || 0
+                                procUnitPrice !== null ? procUnitPrice : 0,
+                                procAmt !== null ? procAmt : 0
                             ]);
                             console.log(`Successfully inserted fallback procedure: ${newCode}`);
                         } else {
                             throw procError;
                         }
                     }
+                } catch (procLoopError) {
+                    console.error('Error processing procedure:', {
+                        error: procLoopError.message,
+                        code: procLoopError.code,
+                        sqlState: procLoopError.sqlState,
+                        procedure: proc
+                    });
+                    // Continue with next procedure instead of failing entire update
                 }
             }
         }
