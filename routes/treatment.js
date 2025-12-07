@@ -932,21 +932,29 @@ router.put('/:vno', async (req, res) => {
         // ✅ บันทึกยา
         if (drugsArray && drugsArray.length > 0) {
             const drugsStart = Date.now();
-            console.log(`💊 [${vno}] Processing ${drugsArray.length} drugs...`);
+            console.log(`💊 [${vno}] ========== START Processing ${drugsArray.length} drugs ==========`);
+            console.log(`💊 [${vno}] Step 1: DELETE existing drugs... (elapsed: ${Date.now() - startTime}ms)`);
+            const deleteStart = Date.now();
             await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
-            console.log(`✅ [${vno}] Deleted existing drugs in ${Date.now() - drugsStart}ms`);
+            console.log(`💊 [${vno}] Step 1 DONE: Deleted in ${Date.now() - deleteStart}ms (total: ${Date.now() - startTime}ms)`);
 
             // ✅ Prepare all unit codes first (parallel) - แต่ไม่ต้อง ensureUnitExists เพราะ INSERT IGNORE จะจัดการเอง
+            console.log(`💊 [${vno}] Step 2: Preparing unit codes... (elapsed: ${Date.now() - startTime}ms)`);
             const resolvedUnits = drugsArray.map((drug) => {
                 const unitCode = toNull(drug.UNIT_CODE) || toNull(drug.unitCode) || toNull(drug.UNITCODE) || 'TAB';
-                // ✅ ไม่ต้อง ensureUnitExists เพราะ INSERT IGNORE จะจัดการเอง
                 return unitCode;
             });
+            console.log(`💊 [${vno}] Step 2 DONE: Prepared ${resolvedUnits.length} unit codes (total: ${Date.now() - startTime}ms)`);
 
-            // ✅ Insert drugs - ใช้ Promise.all เพื่อรัน parallel
-            const drugInserts = drugsArray.map(async (drug, i) => {
+            // ✅ Insert drugs - ใช้ sequential INSERT แทน Promise.all เพื่อหลีกเลี่ยง connection contention
+            console.log(`💊 [${vno}] Step 3: INSERTING ${drugsArray.length} drugs sequentially... (elapsed: ${Date.now() - startTime}ms)`);
+            for (let i = 0; i < drugsArray.length; i++) {
+                const drug = drugsArray[i];
                 const drugCode = toNull(drug.DRUG_CODE) || toNull(drug.drugCode) || toNull(drug.DRUGCODE);
-                if (!drugCode) return;
+                if (!drugCode) {
+                    console.log(`💊 [${vno}] Skipping drug ${i+1}/${drugsArray.length} (no code)`);
+                    continue;
+                }
 
                 const unitCode = resolvedUnits[i];
                 const qty = parseNumeric(drug.QTY) || parseNumeric(drug.qty) || 1;
@@ -956,7 +964,8 @@ router.put('/:vno', async (req, res) => {
                 // ✅ INSERT โดยไม่ต้องมี PK/FK - ใช้ try-catch เพื่อไม่ให้ transaction fail
                 try {
                     const insertStart = Date.now();
-                    const [result] = await connection.execute(`
+                    console.log(`💊 [${vno}] INSERT drug ${i+1}/${drugsArray.length}: ${drugCode}... (elapsed: ${Date.now() - startTime}ms)`);
+                    await connection.execute(`
                         INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     `, [
@@ -969,42 +978,50 @@ router.put('/:vno', async (req, res) => {
                         toNull(drug.NOTE1) || toNull(drug.note) || toNull(drug.NOTE) || '',
                         toNull(drug.TIME1) || toNull(drug.time) || toNull(drug.TIME) || ''
                     ]);
-                    console.log(`✅ [${vno}] INSERT drug ${drugCode} in ${Date.now() - insertStart}ms`);
+                    console.log(`💊 [${vno}] INSERT drug ${i+1}/${drugsArray.length} DONE: ${drugCode} in ${Date.now() - insertStart}ms (total: ${Date.now() - startTime}ms)`);
                 } catch (insertError) {
                     // ✅ Log error แต่ไม่ throw เพื่อให้ transaction continue (รองรับกรณีที่ไม่มี PK/FK)
-                    console.error(`❌ [${vno}] INSERT drug failed - DRUG_CODE: ${drugCode}`, {
+                    console.error(`❌ [${vno}] INSERT drug ${i+1}/${drugsArray.length} FAILED: ${drugCode}`, {
                         error: insertError.message,
-                        code: insertError.code
+                        code: insertError.code,
+                        elapsed: Date.now() - startTime
                     });
                 }
-            });
+            }
             
-            await Promise.all(drugInserts);
-            console.log(`✅ [${vno}] All drugs inserted in ${Date.now() - drugsStart}ms`);
+            console.log(`💊 [${vno}] ========== DONE All drugs inserted in ${Date.now() - drugsStart}ms (total: ${Date.now() - startTime}ms) ==========`);
         }
 
         // ✅ บันทึกหัตถการ
         if (proceduresArray && proceduresArray.length > 0) {
             const procStart = Date.now();
-            console.log(`🔧 [${vno}] Processing ${proceduresArray.length} procedures...`);
+            console.log(`🔧 [${vno}] ========== START Processing ${proceduresArray.length} procedures ==========`);
+            console.log(`🔧 [${vno}] Step 1: DELETE existing procedures... (elapsed: ${Date.now() - startTime}ms)`);
+            const deleteStart = Date.now();
             await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
-            console.log(`✅ [${vno}] Deleted existing procedures in ${Date.now() - procStart}ms`);
+            console.log(`🔧 [${vno}] Step 1 DONE: Deleted in ${Date.now() - deleteStart}ms (total: ${Date.now() - startTime}ms)`);
 
             // ✅ Prepare all unit codes first - แต่ไม่ต้อง ensureUnitExists เพราะ INSERT IGNORE จะจัดการเอง
+            console.log(`🔧 [${vno}] Step 2: Preparing unit codes... (elapsed: ${Date.now() - startTime}ms)`);
             const resolvedProcUnits = proceduresArray.map((proc) => {
                 let unitCode = toNull(proc.UNIT_CODE) || toNull(proc.unitCode) || toNull(proc.UNITCODE);
                 if (unitCode === 'ครั้ง') {
                     unitCode = 'TIMES';
                 }
                 unitCode = unitCode || 'TIMES';
-                // ✅ ไม่ต้อง ensureUnitExists เพราะ INSERT IGNORE จะจัดการเอง
                 return unitCode;
             });
+            console.log(`🔧 [${vno}] Step 2 DONE: Prepared ${resolvedProcUnits.length} unit codes (total: ${Date.now() - startTime}ms)`);
 
-            // ✅ Insert procedures - ใช้ Promise.all เพื่อรัน parallel
-            const procInserts = proceduresArray.map(async (proc, i) => {
+            // ✅ Insert procedures - ใช้ sequential INSERT แทน Promise.all เพื่อหลีกเลี่ยง connection contention
+            console.log(`🔧 [${vno}] Step 3: INSERTING ${proceduresArray.length} procedures sequentially... (elapsed: ${Date.now() - startTime}ms)`);
+            for (let i = 0; i < proceduresArray.length; i++) {
+                const proc = proceduresArray[i];
                 let procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE) || toNull(proc.procedureCode) || toNull(proc.PROCEDURECODE) || toNull(proc.MEDICALPROCEDURECODE);
-                if (!procedureCode) return;
+                if (!procedureCode) {
+                    console.log(`🔧 [${vno}] Skipping procedure ${i+1}/${proceduresArray.length} (no code)`);
+                    continue;
+                }
 
                 if (procedureCode.length > 15) {
                     procedureCode = procedureCode.substring(0, 15);
@@ -1018,7 +1035,8 @@ router.put('/:vno', async (req, res) => {
                 // ✅ INSERT โดยไม่ต้องมี PK/FK - ใช้ try-catch เพื่อไม่ให้ transaction fail
                 try {
                     const insertStart = Date.now();
-                    const [result] = await connection.execute(`
+                    console.log(`🔧 [${vno}] INSERT procedure ${i+1}/${proceduresArray.length}: ${procedureCode}... (elapsed: ${Date.now() - startTime}ms)`);
+                    await connection.execute(`
                         INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
                         VALUES (?, ?, ?, ?, ?, ?)
                     `, [
@@ -1029,18 +1047,18 @@ router.put('/:vno', async (req, res) => {
                         procUnitPrice,
                         procAmt
                     ]);
-                    console.log(`✅ [${vno}] INSERT procedure ${procedureCode} in ${Date.now() - insertStart}ms`);
+                    console.log(`🔧 [${vno}] INSERT procedure ${i+1}/${proceduresArray.length} DONE: ${procedureCode} in ${Date.now() - insertStart}ms (total: ${Date.now() - startTime}ms)`);
                 } catch (insertError) {
                     // ✅ Log error แต่ไม่ throw เพื่อให้ transaction continue (รองรับกรณีที่ไม่มี PK/FK)
-                    console.error(`❌ [${vno}] INSERT procedure failed - PROCEDURE_CODE: ${procedureCode}`, {
+                    console.error(`❌ [${vno}] INSERT procedure ${i+1}/${proceduresArray.length} FAILED: ${procedureCode}`, {
                         error: insertError.message,
-                        code: insertError.code
+                        code: insertError.code,
+                        elapsed: Date.now() - startTime
                     });
                 }
-            });
+            }
             
-            await Promise.all(procInserts);
-            console.log(`✅ [${vno}] All procedures inserted in ${Date.now() - procStart}ms`);
+            console.log(`🔧 [${vno}] ========== DONE All procedures inserted in ${Date.now() - procStart}ms (total: ${Date.now() - startTime}ms) ==========`);
         }
 
         if (labTests && Array.isArray(labTests) && labTests.length > 0) {
@@ -1069,18 +1087,19 @@ router.put('/:vno', async (req, res) => {
 
         // ✅ Commit transaction ก่อนส่ง response
         const commitStart = Date.now();
-        console.log(`💾 [${vno}] Committing transaction...`);
+        console.log(`💾 [${vno}] ========== COMMITTING TRANSACTION... (elapsed: ${Date.now() - startTime}ms) ==========`);
         await connection.commit();
-        console.log(`✅ [${vno}] Transaction committed in ${Date.now() - commitStart}ms`);
+        console.log(`💾 [${vno}] ✅ COMMIT DONE in ${Date.now() - commitStart}ms (total: ${Date.now() - startTime}ms)`);
         
         // ✅ Release connection ก่อนส่ง response
         if (connection) {
+            const releaseStart = Date.now();
             connection.release();
-            console.log(`🔓 [${vno}] Connection released`);
+            console.log(`🔓 [${vno}] Connection released in ${Date.now() - releaseStart}ms (total: ${Date.now() - startTime}ms)`);
         }
         
         const totalTime = Date.now() - startTime;
-        console.log(`✅ [${vno}] Total request time: ${totalTime}ms`);
+        console.log(`✅ [${vno}] ========== SUCCESS Total request time: ${totalTime}ms ==========`);
         
         // ✅ ส่ง response หลัง commit เสร็จ
         res.json({
