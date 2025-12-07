@@ -1,0 +1,66 @@
+-- ============================================
+-- ตรวจสอบ Foreign Key และ Primary Key
+-- สำหรับ TREATMENT1 และ TREATMENT1_DIAGNOSIS
+-- ============================================
+
+-- 1. ตรวจสอบว่า TREATMENT1.VNO มี Primary Key หรือไม่
+SHOW CREATE TABLE TREATMENT1;
+
+-- 2. ตรวจสอบ Indexes ของ TREATMENT1.VNO
+SHOW INDEXES FROM TREATMENT1 WHERE Column_name = 'VNO';
+
+-- 3. ตรวจสอบโครงสร้างของ TREATMENT1_DIAGNOSIS
+SHOW CREATE TABLE TREATMENT1_DIAGNOSIS;
+
+-- 4. ตรวจสอบ Foreign Key Constraints
+SELECT 
+    CONSTRAINT_NAME,
+    TABLE_NAME,
+    COLUMN_NAME,
+    REFERENCED_TABLE_NAME,
+    REFERENCED_COLUMN_NAME
+FROM information_schema.KEY_COLUMN_USAGE
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = 'TREATMENT1_DIAGNOSIS'
+  AND REFERENCED_TABLE_NAME IS NOT NULL;
+
+-- 5. ตรวจสอบว่า TREATMENT1.VNO มี Primary Key หรือไม่
+SELECT 
+    CONSTRAINT_NAME,
+    CONSTRAINT_TYPE,
+    COLUMN_NAME
+FROM information_schema.KEY_COLUMN_USAGE
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = 'TREATMENT1'
+  AND CONSTRAINT_NAME = 'PRIMARY';
+
+-- 6. ตรวจสอบข้อมูลตัวอย่าง VNO ใน TREATMENT1
+SELECT VNO, LENGTH(VNO) as vno_length, HEX(VNO) as vno_hex
+FROM TREATMENT1 
+WHERE VNO = 'VN681207016'
+LIMIT 5;
+
+-- 7. ตรวจสอบข้อมูลตัวอย่าง VNO ใน TREATMENT1_DIAGNOSIS
+SELECT VNO, LENGTH(VNO) as vno_length, HEX(VNO) as vno_hex
+FROM TREATMENT1_DIAGNOSIS 
+WHERE VNO = 'VN681207016'
+LIMIT 5;
+
+-- 8. ตรวจสอบว่า VNO ใน TREATMENT1_DIAGNOSIS มี VNO ที่ไม่มีใน TREATMENT1 หรือไม่
+SELECT DISTINCT d.VNO
+FROM TREATMENT1_DIAGNOSIS d
+LEFT JOIN TREATMENT1 t ON d.VNO = t.VNO
+WHERE t.VNO IS NULL;
+
+-- 9. ตรวจสอบ Collation ของ VNO ในทั้งสองตาราง
+SELECT 
+    TABLE_NAME,
+    COLUMN_NAME,
+    COLLATION_NAME,
+    CHARACTER_SET_NAME
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME IN ('TREATMENT1', 'TREATMENT1_DIAGNOSIS')
+  AND COLUMN_NAME = 'VNO';
+
+

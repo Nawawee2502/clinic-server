@@ -588,6 +588,16 @@ router.put('/:vno', async (req, res) => {
         return value;
     };
 
+    // Helper function to safely parse numeric values (including 0)
+    const parseNumeric = (value) => {
+        const nullValue = toNull(value);
+        if (nullValue === null) {
+            return null;
+        }
+        const parsed = parseFloat(nullValue);
+        return isNaN(parsed) ? null : parsed;
+    };
+
     try {
         connection = await db.getConnection();
         await connection.beginTransaction();
@@ -657,16 +667,16 @@ router.put('/:vno', async (req, res) => {
             toNull(BP1),
             toNull(BP2),
             toNull(SPO2),
-            toNull(TOTAL_AMOUNT) ? parseFloat(toNull(TOTAL_AMOUNT)) : null,
-            req.body.TREATMENT_FEE ? parseFloat(req.body.TREATMENT_FEE) : null, // ✅ ค่ารักษาแยก
-            toNull(DISCOUNT_AMOUNT) ? parseFloat(toNull(DISCOUNT_AMOUNT)) : null,
-            toNull(NET_AMOUNT) ? parseFloat(toNull(NET_AMOUNT)) : null,
+            parseNumeric(TOTAL_AMOUNT),
+            parseNumeric(req.body.TREATMENT_FEE), // ✅ ค่ารักษาแยก
+            parseNumeric(DISCOUNT_AMOUNT),
+            parseNumeric(NET_AMOUNT),
             toNull(PAYMENT_STATUS),
             toNull(PAYMENT_DATE),
             toNull(PAYMENT_TIME),
             toNull(PAYMENT_METHOD),
-            toNull(RECEIVED_AMOUNT) ? parseFloat(toNull(RECEIVED_AMOUNT)) : null,
-            toNull(CHANGE_AMOUNT) ? parseFloat(toNull(CHANGE_AMOUNT)) : null,
+            parseNumeric(RECEIVED_AMOUNT),
+            parseNumeric(CHANGE_AMOUNT),
             toNull(CASHIER),
             vno
         ]);
@@ -863,11 +873,19 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        console.error('Error updating treatment with payment data:', error);
+        console.error('❌ Error updating treatment with payment data:', {
+            vno: vno,
+            error: error.message,
+            code: error.code,
+            sqlState: error.sqlState,
+            sqlMessage: error.sqlMessage,
+            stack: error.stack
+        });
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลการรักษาและการชำระเงิน',
-            error: error.message
+            error: error.message,
+            code: error.code
         });
     } finally {
         if (connection) {
