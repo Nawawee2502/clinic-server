@@ -971,19 +971,28 @@ router.put('/:vno', async (req, res) => {
                 const unitPrice = parseNumeric(drug.UNIT_PRICE) || parseNumeric(drug.unitPrice) || parseNumeric(drug.UNITPRICE) || 0;
                 const amt = parseNumeric(drug.AMT) || parseNumeric(drug.amt) || 0;
 
-                await connection.execute(`
-                    INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `, [
-                    vno,
-                    drugCode,
-                    qty,
-                    unitCode,
-                    unitPrice,
-                    amt,
-                    toNull(drug.NOTE1) || toNull(drug.note) || toNull(drug.NOTE) || '',
-                    toNull(drug.TIME1) || toNull(drug.time) || toNull(drug.TIME) || ''
-                ]);
+                try {
+                    await connection.execute(`
+                        INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        vno,
+                        drugCode,
+                        qty,
+                        unitCode,
+                        unitPrice,
+                        amt,
+                        toNull(drug.NOTE1) || toNull(drug.note) || toNull(drug.NOTE) || '',
+                        toNull(drug.TIME1) || toNull(drug.time) || toNull(drug.TIME) || ''
+                    ]);
+                } catch (insertError) {
+                    // ถ้าเป็น duplicate key error ให้ข้ามไป
+                    if (insertError.code === 'ER_DUP_ENTRY') {
+                        continue;
+                    }
+                    // Throw error อื่นๆ เพื่อให้ transaction rollback
+                    throw insertError;
+                }
             }
         }
 
@@ -1016,17 +1025,26 @@ router.put('/:vno', async (req, res) => {
                 const procUnitPrice = parseNumeric(proc.UNIT_PRICE) || parseNumeric(proc.unitPrice) || parseNumeric(proc.UNITPRICE) || 0;
                 const procAmt = parseNumeric(proc.AMT) || parseNumeric(proc.amt) || 0;
 
-                await connection.execute(`
-                    INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                `, [
-                    vno,
-                    procedureCode,
-                    procQty,
-                    unitCode,
-                    procUnitPrice,
-                    procAmt
-                ]);
+                try {
+                    await connection.execute(`
+                        INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    `, [
+                        vno,
+                        procedureCode,
+                        procQty,
+                        unitCode,
+                        procUnitPrice,
+                        procAmt
+                    ]);
+                } catch (insertError) {
+                    // ถ้าเป็น duplicate key error ให้ข้ามไป
+                    if (insertError.code === 'ER_DUP_ENTRY') {
+                        continue;
+                    }
+                    // Throw error อื่นๆ เพื่อให้ transaction rollback
+                    throw insertError;
+                }
             }
         }
 
