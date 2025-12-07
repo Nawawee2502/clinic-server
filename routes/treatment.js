@@ -56,14 +56,14 @@ function formatTimeForDB(date) {
     return timeStr; // ✅ ได้รูปแบบ HH:MM:SS จากเวลาไทย
 }
 
-// ✅ ตรวจสอบและสร้างหัตถการถ้ายังไม่มี (รองรับระบบที่ไม่มี FK) - ใช้ INSERT IGNORE เพื่อความเร็ว
-const ensureProcedureExists = async (connection, procedureCode, procedureName) => {
+// ✅ ตรวจสอบและสร้างหัตถการถ้ายังไม่มี - ไม่ await เพื่อไม่ให้ block
+const ensureProcedureExists = (connection, procedureCode, procedureName) => {
     try {
         let code = (procedureCode || '').toString().trim();
         let name = (procedureName || '').toString().trim();
 
         if (!code) {
-            return false;
+            return;
         }
 
         if (code.length > 15) {
@@ -74,55 +74,47 @@ const ensureProcedureExists = async (connection, procedureCode, procedureName) =
             name = name.substring(0, 255);
         }
 
-        // ✅ ใช้ INSERT IGNORE เพื่อความเร็ว - ไม่ต้อง SELECT ก่อน
-        try {
-            await connection.execute(`
-                INSERT IGNORE INTO TABLE_MEDICAL_PROCEDURES 
-                (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
-                VALUES (?, ?, ?, 'Custom', 0)
-            `, [
-                code,
-                name || 'หัตถการที่ไม่ระบุชื่อ',
-                name || 'Unnamed Procedure'
-            ]);
-        } catch (insertError) {
-            // Ignore errors - continue anyway
-        }
-        return true;
+        // ✅ ใช้ INSERT IGNORE โดยไม่ await เพื่อไม่ให้ block
+        connection.execute(`
+            INSERT IGNORE INTO TABLE_MEDICAL_PROCEDURES 
+            (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
+            VALUES (?, ?, ?, 'Custom', 0)
+        `, [
+            code,
+            name || 'หัตถการที่ไม่ระบุชื่อ',
+            name || 'Unnamed Procedure'
+        ]).catch(() => {
+            // Ignore errors
+        });
     } catch (error) {
-        // Ignore errors - continue anyway
-        return false;
+        // Ignore errors
     }
 };
 
-// ✅ ตรวจสอบและสร้างยาถ้ายังไม่มี (รองรับระบบที่ไม่มี FK) - ใช้ INSERT IGNORE เพื่อความเร็ว
-const ensureDrugExists = async (connection, drugCode, drugName = null) => {
+// ✅ ตรวจสอบและสร้างยาถ้ายังไม่มี - ไม่ await เพื่อไม่ให้ block
+const ensureDrugExists = (connection, drugCode, drugName = null) => {
     try {
         const code = (drugCode || '').toString().trim();
 
         if (!code) {
-            return false;
+            return;
         }
 
-        // ✅ ใช้ INSERT IGNORE เพื่อความเร็ว - ไม่ต้อง SELECT ก่อน
-        try {
-            const genericName = drugName || `ยา ${code}`;
-            await connection.execute(`
-                INSERT IGNORE INTO TABLE_DRUG 
-                (DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE, SOCIAL_CARD, UCS_CARD) 
-                VALUES (?, ?, ?, 'TAB', 0, 'N', 'N')
-            `, [
-                code,
-                genericName.substring(0, 255),
-                genericName.substring(0, 255)
-            ]);
-        } catch (insertError) {
-            // Ignore errors - continue anyway
-        }
-        return true;
+        // ✅ ใช้ INSERT IGNORE โดยไม่ await เพื่อไม่ให้ block
+        const genericName = drugName || `ยา ${code}`;
+        connection.execute(`
+            INSERT IGNORE INTO TABLE_DRUG 
+            (DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE, SOCIAL_CARD, UCS_CARD) 
+            VALUES (?, ?, ?, 'TAB', 0, 'N', 'N')
+        `, [
+            code,
+            genericName.substring(0, 255),
+            genericName.substring(0, 255)
+        ]).catch(() => {
+            // Ignore errors
+        });
     } catch (error) {
-        // Ignore errors - continue anyway
-        return false;
+        // Ignore errors
     }
 };
 
@@ -929,10 +921,10 @@ router.put('/:vno', async (req, res) => {
                 if (!drugCode) continue;
 
                 const drugName = toNull(drug.GENERIC_NAME) || toNull(drug.TRADE_NAME) || toNull(drug.drugName) || toNull(drug.name) || toNull(drug.GENERICNAME) || toNull(drug.TRADENAME);
-                await ensureDrugExists(connection, drugCode, drugName);
+                ensureDrugExists(connection, drugCode, drugName);
 
                 let unitCode = toNull(drug.UNIT_CODE) || toNull(drug.unitCode) || toNull(drug.UNITCODE) || 'TAB';
-                unitCode = await ensureUnitExists(connection, unitCode, 'เม็ด');
+                unitCode = ensureUnitExists(connection, unitCode, 'เม็ด');
 
                 const qty = parseNumeric(drug.QTY) || parseNumeric(drug.qty) || 1;
                 const unitPrice = parseNumeric(drug.UNIT_PRICE) || parseNumeric(drug.unitPrice) || parseNumeric(drug.UNITPRICE) || 0;
@@ -990,9 +982,9 @@ router.put('/:vno', async (req, res) => {
                     unitCode = 'TIMES';
                 }
                 unitCode = unitCode || 'TIMES';
-                unitCode = await ensureUnitExists(connection, unitCode, 'ครั้ง');
+                unitCode = ensureUnitExists(connection, unitCode, 'ครั้ง');
 
-                await ensureProcedureExists(connection, procedureCode, procedureName);
+                ensureProcedureExists(connection, procedureCode, procedureName);
 
                 const procQty = parseNumeric(proc.QTY) || parseNumeric(proc.qty) || 1;
                 const procUnitPrice = parseNumeric(proc.UNIT_PRICE) || parseNumeric(proc.unitPrice) || parseNumeric(proc.UNITPRICE) || 0;
