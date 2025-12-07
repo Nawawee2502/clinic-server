@@ -908,18 +908,20 @@ router.put('/:vno', async (req, res) => {
             await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
             console.log(`✅ Deleted existing drugs for VNO: ${vno}`);
 
-            for (const drug of drugsArray) {
-                // ✅ รองรับทั้ง uppercase และ lowercase field names
+            // ✅ Prepare all unit codes first (parallel)
+            const unitPromises = drugsArray.map(async (drug) => {
+                const unitCode = toNull(drug.UNIT_CODE) || toNull(drug.unitCode) || toNull(drug.UNITCODE) || 'TAB';
+                return await ensureUnitExists(connection, unitCode, 'เม็ด');
+            });
+            const resolvedUnits = await Promise.all(unitPromises);
+
+            // ✅ Insert drugs
+            for (let i = 0; i < drugsArray.length; i++) {
+                const drug = drugsArray[i];
                 const drugCode = toNull(drug.DRUG_CODE) || toNull(drug.drugCode) || toNull(drug.DRUGCODE);
                 if (!drugCode) continue;
 
-                const drugName = toNull(drug.GENERIC_NAME) || toNull(drug.TRADE_NAME) || toNull(drug.drugName) || toNull(drug.name) || toNull(drug.GENERICNAME) || toNull(drug.TRADENAME);
-                ensureDrugExists(connection, drugCode, drugName);
-
-                let unitCode = toNull(drug.UNIT_CODE) || toNull(drug.unitCode) || toNull(drug.UNITCODE) || 'TAB';
-                // ✅ await ensureUnitExists เพื่อให้เสร็จก่อน INSERT
-                unitCode = await ensureUnitExists(connection, unitCode, 'เม็ด');
-
+                const unitCode = resolvedUnits[i];
                 const qty = parseNumeric(drug.QTY) || parseNumeric(drug.qty) || 1;
                 const unitPrice = parseNumeric(drug.UNIT_PRICE) || parseNumeric(drug.unitPrice) || parseNumeric(drug.UNITPRICE) || 0;
                 const amt = parseNumeric(drug.AMT) || parseNumeric(drug.amt) || 0;
@@ -959,8 +961,20 @@ router.put('/:vno', async (req, res) => {
             await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
             console.log(`✅ Deleted existing procedures for VNO: ${vno}`);
 
-            for (const proc of proceduresArray) {
-                // ✅ รองรับทั้ง uppercase และ lowercase field names
+            // ✅ Prepare all unit codes first (parallel)
+            const procUnitPromises = proceduresArray.map(async (proc) => {
+                let unitCode = toNull(proc.UNIT_CODE) || toNull(proc.unitCode) || toNull(proc.UNITCODE);
+                if (unitCode === 'ครั้ง') {
+                    unitCode = 'TIMES';
+                }
+                unitCode = unitCode || 'TIMES';
+                return await ensureUnitExists(connection, unitCode, 'ครั้ง');
+            });
+            const resolvedProcUnits = await Promise.all(procUnitPromises);
+
+            // ✅ Insert procedures
+            for (let i = 0; i < proceduresArray.length; i++) {
+                const proc = proceduresArray[i];
                 let procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE) || toNull(proc.procedureCode) || toNull(proc.PROCEDURECODE) || toNull(proc.MEDICALPROCEDURECODE);
                 if (!procedureCode) continue;
 
@@ -968,20 +982,7 @@ router.put('/:vno', async (req, res) => {
                     procedureCode = procedureCode.substring(0, 15);
                 }
 
-                const procedureName = toNull(proc.PROCEDURE_NAME) || toNull(proc.procedureName) || toNull(proc.name) || toNull(proc.PROCEDURENAME) || 'หัตถการที่ไม่ระบุชื่อ';
-
-                // ✅ แปลง 'ครั้ง' เป็น 'TIMES' ถ้าจำเป็น
-                let unitCode = toNull(proc.UNIT_CODE) || toNull(proc.unitCode) || toNull(proc.UNITCODE);
-                if (unitCode === 'ครั้ง') {
-                    unitCode = 'TIMES';
-                }
-                unitCode = unitCode || 'TIMES';
-                // ✅ await ensureUnitExists เพื่อให้เสร็จก่อน INSERT
-                unitCode = await ensureUnitExists(connection, unitCode, 'ครั้ง');
-
-                // ✅ ensureProcedureExists ไม่ต้อง await (fire and forget)
-                ensureProcedureExists(connection, procedureCode, procedureName);
-
+                const unitCode = resolvedProcUnits[i];
                 const procQty = parseNumeric(proc.QTY) || parseNumeric(proc.qty) || 1;
                 const procUnitPrice = parseNumeric(proc.UNIT_PRICE) || parseNumeric(proc.unitPrice) || parseNumeric(proc.UNITPRICE) || 0;
                 const procAmt = parseNumeric(proc.AMT) || parseNumeric(proc.amt) || 0;
@@ -1037,10 +1038,10 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // ✅ Commit transaction
+        // ✅ Commit transaction ก่อนส่ง response
         await connection.commit();
         
-        // ✅ ส่ง response ทันที
+        // ✅ ส่ง response หลัง commit เสร็จ
         res.json({
             success: true,
             message: 'อัปเดตข้อมูลการรักษาและการชำระเงินสำเร็จ',
@@ -1057,17 +1058,6 @@ router.put('/:vno', async (req, res) => {
                 }
             }
         });
-
-        // ✅ Release connection หลังส่ง response (ไม่ await)
-        if (connection) {
-            setImmediate(() => {
-                try {
-                    connection.release();
-                } catch (e) {
-                    // Ignore
-                }
-            });
-        }
 
     } catch (error) {
         if (connection) {
