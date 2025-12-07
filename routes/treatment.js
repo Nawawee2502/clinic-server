@@ -127,26 +127,19 @@ const ensureUnitExists = async (connection, unitCode, unitName = 'ครั้�
             return 'TAB'; // คืนค่า default
         }
 
-        // ตรวจสอบว่ามีหน่วยนี้อยู่แล้วหรือไม่
-        const [existing] = await connection.execute(
-            'SELECT UNIT_CODE FROM TABLE_UNIT WHERE UNIT_CODE = ? LIMIT 1',
-            [code]
-        );
-
-        if (existing.length === 0) {
-            try {
-                // พยายามสร้างหน่วยใหม่
-                await connection.execute(
-                    'INSERT INTO TABLE_UNIT (UNIT_CODE, UNIT_NAME) VALUES (?, ?)',
-                    [code, unitName || 'ครั้ง']
-                );
-                console.log(`✅ Added new unit: ${code} - ${unitName}`);
-            } catch (insertError) {
-                // ถ้า insert ไม่ได้ (อาจมี duplicate หรือ constraint อื่น) ให้ใช้ default
-                console.warn(`⚠️ Could not insert unit ${code}, using default`);
-                return 'TAB';
-            }
+        // ✅ ใช้ INSERT IGNORE เพื่อไม่ต้อง SELECT ก่อน (เร็วกว่า)
+        // ถ้ามีอยู่แล้วจะไม่ insert, ถ้าไม่มีจะ insert
+        try {
+            await connection.execute(
+                'INSERT IGNORE INTO TABLE_UNIT (UNIT_CODE, UNIT_NAME) VALUES (?, ?)',
+                [code, unitName || 'ครั้ง']
+            );
+        } catch (insertError) {
+            // ถ้า insert ไม่ได้ (อาจมี constraint อื่น) ให้ใช้ default
+            console.warn(`⚠️ Could not insert unit ${code}, using default`);
+            return 'TAB';
         }
+        
         return code;
     } catch (error) {
         console.error('❌ Error ensuring unit exists:', error.message);
@@ -924,7 +917,8 @@ router.put('/:vno', async (req, res) => {
                 ensureDrugExists(connection, drugCode, drugName);
 
                 let unitCode = toNull(drug.UNIT_CODE) || toNull(drug.unitCode) || toNull(drug.UNITCODE) || 'TAB';
-                unitCode = ensureUnitExists(connection, unitCode, 'เม็ด');
+                // ✅ await ensureUnitExists เพื่อให้เสร็จก่อน INSERT
+                unitCode = await ensureUnitExists(connection, unitCode, 'เม็ด');
 
                 const qty = parseNumeric(drug.QTY) || parseNumeric(drug.qty) || 1;
                 const unitPrice = parseNumeric(drug.UNIT_PRICE) || parseNumeric(drug.unitPrice) || parseNumeric(drug.UNITPRICE) || 0;
@@ -982,8 +976,10 @@ router.put('/:vno', async (req, res) => {
                     unitCode = 'TIMES';
                 }
                 unitCode = unitCode || 'TIMES';
-                unitCode = ensureUnitExists(connection, unitCode, 'ครั้ง');
+                // ✅ await ensureUnitExists เพื่อให้เสร็จก่อน INSERT
+                unitCode = await ensureUnitExists(connection, unitCode, 'ครั้ง');
 
+                // ✅ ensureProcedureExists ไม่ต้อง await (fire and forget)
                 ensureProcedureExists(connection, procedureCode, procedureName);
 
                 const procQty = parseNumeric(proc.QTY) || parseNumeric(proc.qty) || 1;
