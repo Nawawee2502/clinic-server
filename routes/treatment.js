@@ -780,11 +780,17 @@ router.post('/', async (req, res) => {
 
 // PUT update entire treatment
 router.put('/:vno', async (req, res) => {
+    // ✅ Log ทันทีที่ request ถึง route (ก่อนทำอะไรเลย)
+    const vno = req.params.vno;
+    const startTime = Date.now();
+    console.log(`🚀 [${vno}] ========== REQUEST RECEIVED: PUT /treatments/${vno} at ${new Date().toISOString()} ==========`);
+    console.log(`📦 [${vno}] Request headers:`, {
+        'content-type': req.headers['content-type'],
+        'content-length': req.headers['content-length']
+    });
+    
     const db = await require('../config/db');
     let connection = null;
-    const startTime = Date.now();
-    const vno = req.params.vno;
-    console.log(`⏱️ [${vno}] ========== Starting PUT /treatments/${vno} at ${new Date().toISOString()} ==========`);
 
     const toNull = (value) => {
         if (value === undefined || value === null || value === '') {
@@ -805,10 +811,10 @@ router.put('/:vno', async (req, res) => {
 
     try {
         const connectionStart = Date.now();
-        console.log(`🔗 [${vno}] Getting database connection...`);
+        console.log(`🔗 [${vno}] Getting database connection... (elapsed: ${Date.now() - startTime}ms)`);
         connection = await db.getConnection();
         const connectionTime = Date.now() - connectionStart;
-        console.log(`✅ [${vno}] Got connection in ${connectionTime}ms`);
+        console.log(`✅ [${vno}] Got connection in ${connectionTime}ms (total elapsed: ${Date.now() - startTime}ms)`);
         
         if (connectionTime > 1000) {
             console.warn(`⚠️ [${vno}] WARNING: Connection took ${connectionTime}ms (very slow!)`);
@@ -816,7 +822,7 @@ router.put('/:vno', async (req, res) => {
         
         const transactionStart = Date.now();
         await connection.beginTransaction();
-        console.log(`✅ [${vno}] Transaction started in ${Date.now() - transactionStart}ms`);
+        console.log(`✅ [${vno}] Transaction started in ${Date.now() - transactionStart}ms (total elapsed: ${Date.now() - startTime}ms)`);
 
         const {
             VNO, HNNO, DXCODE, ICD10CODE, TREATMENT1, STATUS1,
@@ -1095,13 +1101,13 @@ router.put('/:vno', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Error updating treatment with payment data:', {
-            vno: req.params.vno,
+        const errorTime = Date.now() - startTime;
+        console.error(`❌ [${vno}] Error after ${errorTime}ms:`, {
             error: error.message,
             code: error.code,
             sqlState: error.sqlState,
             sqlMessage: error.sqlMessage,
-            stack: error.stack
+            stack: error.stack?.substring(0, 500) // จำกัด stack trace
         });
         
         if (connection) {
