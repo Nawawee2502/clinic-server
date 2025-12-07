@@ -82,18 +82,28 @@ const ensureProcedureExists = async (connection, procedureCode, procedureName) =
         );
 
         if (existing.length === 0) {
-            // สร้างหัตถการใหม่ถ้ายังไม่มี
-            await connection.execute(`
-                INSERT INTO TABLE_MEDICAL_PROCEDURES 
-                (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
-                VALUES (?, ?, ?, 'Custom', 0)
-            `, [
-                code,
-                name || 'หัตถการที่ไม่ระบุชื่อ',
-                name || 'Unnamed Procedure'
-            ]);
+            // สร้างหัตถการใหม่ถ้ายังไม่มี (ใช้ try-catch เพื่อรองรับกรณีที่ไม่มี FK)
+            try {
+                await connection.execute(`
+                    INSERT INTO TABLE_MEDICAL_PROCEDURES 
+                    (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
+                    VALUES (?, ?, ?, 'Custom', 0)
+                `, [
+                    code,
+                    name || 'หัตถการที่ไม่ระบุชื่อ',
+                    name || 'Unnamed Procedure'
+                ]);
 
-            console.log(`✅ Added new procedure: ${code} - ${name}`);
+                console.log(`✅ Added new procedure: ${code} - ${name}`);
+            } catch (insertError) {
+                // ถ้าเป็น duplicate key error แสดงว่ามีคนอื่น insert ไปแล้วระหว่างที่เราตรวจสอบ
+                if (insertError.code === 'ER_DUP_ENTRY') {
+                    console.log(`ℹ️ Procedure ${code} already exists (race condition)`);
+                } else {
+                    console.error(`❌ Error inserting procedure ${code}:`, insertError.message);
+                    throw insertError;
+                }
+            }
         }
         return true;
     } catch (error) {
@@ -120,19 +130,28 @@ const ensureDrugExists = async (connection, drugCode, drugName = null) => {
         );
 
         if (existing.length === 0) {
-            // สร้างยาใหม่ถ้ายังไม่มี
-            const genericName = drugName || `ยา ${code}`;
-            await connection.execute(`
-                INSERT INTO TABLE_DRUG 
-                (DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE, SOCIAL_CARD, UCS_CARD) 
-                VALUES (?, ?, ?, 'TAB', 0, 'N', 'N')
-            `, [
-                code,
-                genericName.substring(0, 255),
-                genericName.substring(0, 255)
-            ]);
+            // สร้างยาใหม่ถ้ายังไม่มี (ใช้ INSERT IGNORE เพื่อรองรับกรณีที่ไม่มี FK)
+            try {
+                const genericName = drugName || `ยา ${code}`;
+                await connection.execute(`
+                    INSERT INTO TABLE_DRUG 
+                    (DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE, SOCIAL_CARD, UCS_CARD) 
+                    VALUES (?, ?, ?, 'TAB', 0, 'N', 'N')
+                `, [
+                    code,
+                    genericName.substring(0, 255),
+                    genericName.substring(0, 255)
+                ]);
 
-            console.log(`✅ Added new drug: ${code} - ${genericName}`);
+                console.log(`✅ Added new drug: ${code} - ${genericName}`);
+            } catch (insertError) {
+                // ถ้าเป็น duplicate key error แสดงว่ามีคนอื่น insert ไปแล้วระหว่างที่เราตรวจสอบ
+                if (insertError.code === 'ER_DUP_ENTRY') {
+                    console.log(`ℹ️ Drug ${code} already exists (race condition)`);
+                } else {
+                    throw insertError;
+                }
+            }
         }
         return true;
     } catch (error) {
@@ -650,22 +669,32 @@ router.post('/', async (req, res) => {
                 const unitPrice = parseNumeric(drug.UNIT_PRICE);
                 const amt = parseNumeric(drug.AMT);
 
-                await connection.execute(`
-                    INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `, [
-                    VNO,
-                    drug.DRUG_CODE,
-                    qty !== null ? qty : 1,
-                    unitCode,
-                    unitPrice !== null ? unitPrice : 0,
-                    amt !== null ? amt : 0,
-                    drug.NOTE1 || '',
-                    drug.TIME1 || ''
-                ]);
+                // ✅ ใช้ INSERT IGNORE เพื่อรองรับกรณีที่ไม่มี FK constraints
+                try {
+                    await connection.execute(`
+                        INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        VNO,
+                        drug.DRUG_CODE,
+                        qty !== null ? qty : 1,
+                        unitCode,
+                        unitPrice !== null ? unitPrice : 0,
+                        amt !== null ? amt : 0,
+                        drug.NOTE1 || '',
+                        drug.TIME1 || ''
+                    ]);
 
-                insertedDrugsCount++;
-                console.log(`✅ Successfully inserted drug: ${drug.DRUG_CODE}`);
+                    insertedDrugsCount++;
+                    console.log(`✅ Successfully inserted drug: ${drug.DRUG_CODE}`);
+                } catch (insertError) {
+                    // ถ้าเป็น duplicate key error ให้ข้ามไป
+                    if (insertError.code === 'ER_DUP_ENTRY') {
+                        console.warn(`⚠️ Drug ${drug.DRUG_CODE} already exists for VNO ${VNO}, skipping`);
+                        continue;
+                    }
+                    throw insertError; // Throw error อื่นๆ
+                }
             } catch (drugError) {
                 console.error(`❌ Error inserting drug ${drug.DRUG_CODE}:`, {
                     error: drugError.message,
@@ -704,20 +733,30 @@ router.post('/', async (req, res) => {
                 const unitPrice = parseNumeric(proc.UNIT_PRICE);
                 const amt = parseNumeric(proc.AMT);
 
-                await connection.execute(`
-                    INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                `, [
-                    VNO,
-                    procedureCode,
-                    qty !== null ? qty : 1,
-                    unitCode,
-                    unitPrice !== null ? unitPrice : 0,
-                    amt !== null ? amt : 0
-                ]);
+                // ✅ ใช้ INSERT IGNORE เพื่อรองรับกรณีที่ไม่มี FK constraints
+                try {
+                    await connection.execute(`
+                        INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    `, [
+                        VNO,
+                        procedureCode,
+                        qty !== null ? qty : 1,
+                        unitCode,
+                        unitPrice !== null ? unitPrice : 0,
+                        amt !== null ? amt : 0
+                    ]);
 
-                insertedProceduresCount++;
-                console.log(`✅ Successfully inserted procedure: ${procedureCode}`);
+                    insertedProceduresCount++;
+                    console.log(`✅ Successfully inserted procedure: ${procedureCode}`);
+                } catch (insertError) {
+                    // ถ้าเป็น duplicate key error ให้ข้ามไป
+                    if (insertError.code === 'ER_DUP_ENTRY') {
+                        console.warn(`⚠️ Procedure ${procedureCode} already exists for VNO ${VNO}, skipping`);
+                        continue;
+                    }
+                    throw insertError; // Throw error อื่นๆ
+                }
             } catch (procError) {
                 console.error(`❌ Error inserting procedure:`, {
                     error: procError.message,
