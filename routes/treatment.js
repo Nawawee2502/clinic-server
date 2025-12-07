@@ -837,6 +837,8 @@ router.put('/:vno', async (req, res) => {
         console.log(`📦 [${vno}] Request body:`, {
             drugsCount: Array.isArray(drugs) ? drugs.length : 0,
             proceduresCount: Array.isArray(procedures) ? procedures.length : 0,
+            hasDrugs: req.body.hasOwnProperty('drugs'),
+            hasProcedures: req.body.hasOwnProperty('procedures'),
             drugs: drugs,
             procedures: procedures
         });
@@ -848,6 +850,8 @@ router.put('/:vno', async (req, res) => {
         console.log(`📦 [${vno}] Parsed arrays:`, {
             drugsArrayLength: drugsArray.length,
             proceduresArrayLength: proceduresArray.length,
+            hasDrugsInRequest: req.body.hasOwnProperty('drugs'),
+            hasProceduresInRequest: req.body.hasOwnProperty('procedures'),
             drugsArray: drugsArray,
             proceduresArray: proceduresArray
         });
@@ -1094,8 +1098,8 @@ router.put('/:vno', async (req, res) => {
                     // ✅ ไม่ throw error เพื่อให้สามารถ insert ใหม่ได้
                 }
 
-            let successCount = 0;
-            for (let i = 0; i < proceduresArray.length; i++) {
+                let successCount = 0;
+                for (let i = 0; i < proceduresArray.length; i++) {
                 const proc = proceduresArray[i];
                 let procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE) || toNull(proc.procedureCode) || toNull(proc.PROCEDURECODE) || toNull(proc.MEDICALPROCEDURECODE);
                 
@@ -1159,7 +1163,7 @@ router.put('/:vno', async (req, res) => {
                     });
                     // ✅ ไม่ throw error เพื่อให้บันทึกหัตถการตัวอื่นต่อได้ แต่ log error ไว้
                 }
-            }
+                }
                 console.log(`🔧 [${vno}] Inserted ${successCount}/${proceduresArray.length} procedures in ${Date.now() - procStart}ms`);
             } else {
                 // ✅ ส่ง procedures มาแต่เป็น empty array - ให้ลบข้อมูลเดิมออก
