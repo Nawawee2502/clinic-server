@@ -56,14 +56,13 @@ function formatTimeForDB(date) {
     return timeStr; // ✅ ได้รูปแบบ HH:MM:SS จากเวลาไทย
 }
 
-// ✅ ตรวจสอบและสร้างหัตถการถ้ายังไม่มี (รองรับระบบที่ไม่มี FK)
+// ✅ ตรวจสอบและสร้างหัตถการถ้ายังไม่มี (รองรับระบบที่ไม่มี FK) - ใช้ INSERT IGNORE เพื่อความเร็ว
 const ensureProcedureExists = async (connection, procedureCode, procedureName) => {
     try {
         let code = (procedureCode || '').toString().trim();
         let name = (procedureName || '').toString().trim();
 
         if (!code) {
-            console.warn('⚠️ Procedure code is empty');
             return false;
         }
 
@@ -75,89 +74,54 @@ const ensureProcedureExists = async (connection, procedureCode, procedureName) =
             name = name.substring(0, 255);
         }
 
-        // ตรวจสอบว่ามีหัตถการนี้อยู่แล้วหรือไม่
-        const [existing] = await connection.execute(
-            'SELECT MEDICAL_PROCEDURE_CODE FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ? LIMIT 1',
-            [code]
-        );
-
-        if (existing.length === 0) {
-            // สร้างหัตถการใหม่ถ้ายังไม่มี (ใช้ try-catch เพื่อรองรับกรณีที่ไม่มี FK)
-            try {
-                await connection.execute(`
-                    INSERT INTO TABLE_MEDICAL_PROCEDURES 
-                    (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
-                    VALUES (?, ?, ?, 'Custom', 0)
-                `, [
-                    code,
-                    name || 'หัตถการที่ไม่ระบุชื่อ',
-                    name || 'Unnamed Procedure'
-                ]);
-
-                console.log(`✅ Added new procedure: ${code} - ${name}`);
-            } catch (insertError) {
-                // ถ้าเป็น duplicate key error แสดงว่ามีคนอื่น insert ไปแล้วระหว่างที่เราตรวจสอบ
-                if (insertError.code === 'ER_DUP_ENTRY') {
-                    console.log(`ℹ️ Procedure ${code} already exists (race condition)`);
-                } else {
-                    // ไม่ throw error เพื่อให้สามารถดำเนินการต่อได้ (รองรับกรณีที่ไม่มี FK)
-                    console.error(`❌ Error inserting procedure ${code}:`, insertError.message);
-                }
-            }
+        // ✅ ใช้ INSERT IGNORE เพื่อความเร็ว - ไม่ต้อง SELECT ก่อน
+        try {
+            await connection.execute(`
+                INSERT IGNORE INTO TABLE_MEDICAL_PROCEDURES 
+                (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
+                VALUES (?, ?, ?, 'Custom', 0)
+            `, [
+                code,
+                name || 'หัตถการที่ไม่ระบุชื่อ',
+                name || 'Unnamed Procedure'
+            ]);
+        } catch (insertError) {
+            // Ignore errors - continue anyway
         }
         return true;
     } catch (error) {
-        console.error('❌ Error ensuring procedure exists:', error.message);
-        // ไม่ throw error เพื่อให้สามารถดำเนินการต่อได้
+        // Ignore errors - continue anyway
         return false;
     }
 };
 
-// ✅ ตรวจสอบและสร้างยาถ้ายังไม่มี (รองรับระบบที่ไม่มี FK)
+// ✅ ตรวจสอบและสร้างยาถ้ายังไม่มี (รองรับระบบที่ไม่มี FK) - ใช้ INSERT IGNORE เพื่อความเร็ว
 const ensureDrugExists = async (connection, drugCode, drugName = null) => {
     try {
         const code = (drugCode || '').toString().trim();
 
         if (!code) {
-            console.warn('⚠️ Drug code is empty');
             return false;
         }
 
-        // ตรวจสอบว่ามียานี้อยู่แล้วหรือไม่
-        const [existing] = await connection.execute(
-            'SELECT DRUG_CODE FROM TABLE_DRUG WHERE DRUG_CODE = ? LIMIT 1',
-            [code]
-        );
-
-        if (existing.length === 0) {
-            // สร้างยาใหม่ถ้ายังไม่มี (ใช้ INSERT IGNORE เพื่อรองรับกรณีที่ไม่มี FK)
-            try {
-                const genericName = drugName || `ยา ${code}`;
-                await connection.execute(`
-                    INSERT INTO TABLE_DRUG 
-                    (DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE, SOCIAL_CARD, UCS_CARD) 
-                    VALUES (?, ?, ?, 'TAB', 0, 'N', 'N')
-                `, [
-                    code,
-                    genericName.substring(0, 255),
-                    genericName.substring(0, 255)
-                ]);
-
-                console.log(`✅ Added new drug: ${code} - ${genericName}`);
-            } catch (insertError) {
-                // ถ้าเป็น duplicate key error แสดงว่ามีคนอื่น insert ไปแล้วระหว่างที่เราตรวจสอบ
-                if (insertError.code === 'ER_DUP_ENTRY') {
-                    console.log(`ℹ️ Drug ${code} already exists (race condition)`);
-                } else {
-                    // ไม่ throw error เพื่อให้สามารถดำเนินการต่อได้ (รองรับกรณีที่ไม่มี FK)
-                    console.error(`❌ Error inserting drug ${code}:`, insertError.message);
-                }
-            }
+        // ✅ ใช้ INSERT IGNORE เพื่อความเร็ว - ไม่ต้อง SELECT ก่อน
+        try {
+            const genericName = drugName || `ยา ${code}`;
+            await connection.execute(`
+                INSERT IGNORE INTO TABLE_DRUG 
+                (DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE, SOCIAL_CARD, UCS_CARD) 
+                VALUES (?, ?, ?, 'TAB', 0, 'N', 'N')
+            `, [
+                code,
+                genericName.substring(0, 255),
+                genericName.substring(0, 255)
+            ]);
+        } catch (insertError) {
+            // Ignore errors - continue anyway
         }
         return true;
     } catch (error) {
-        console.error('❌ Error ensuring drug exists:', error.message);
-        // ไม่ throw error เพื่อให้สามารถดำเนินการต่อได้
+        // Ignore errors - continue anyway
         return false;
     }
 };
@@ -1090,9 +1054,8 @@ router.put('/:vno', async (req, res) => {
         await connection.commit();
         console.log(`✅ Transaction committed successfully for VNO: ${vno}`);
         
-        // ✅ Release connection ก่อนส่ง response
-        connection.release();
-
+        // ✅ ส่ง response ก่อน release connection เพื่อความเร็ว
+        console.log(`📤 Sending response for VNO: ${vno}`);
         res.json({
             success: true,
             message: 'อัปเดตข้อมูลการรักษาและการชำระเงินสำเร็จ',
@@ -1109,6 +1072,11 @@ router.put('/:vno', async (req, res) => {
                 }
             }
         });
+
+        // ✅ Release connection หลังส่ง response
+        if (connection) {
+            connection.release();
+        }
 
     } catch (error) {
         if (connection) {
