@@ -954,94 +954,79 @@ router.put('/:vno', async (req, res) => {
 
         // ✅ บันทึกยา
         if (drugsArray && drugsArray.length > 0) {
-            try {
-                await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
-            } catch (deleteError) {
-                // Continue anyway
-            }
+            await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
 
             for (const drug of drugsArray) {
-                try {
-                    const drugCode = toNull(drug.DRUG_CODE);
-                    if (!drugCode) continue;
+                // ✅ รองรับทั้ง uppercase และ lowercase field names
+                const drugCode = toNull(drug.DRUG_CODE) || toNull(drug.drugCode) || toNull(drug.DRUGCODE);
+                if (!drugCode) continue;
 
-                    // ✅ ตรวจสอบและสร้างยาถ้ายังไม่มี
-                    const drugName = toNull(drug.GENERIC_NAME) || toNull(drug.TRADE_NAME) || toNull(drug.drugName);
-                    await ensureDrugExists(connection, drugCode, drugName);
+                const drugName = toNull(drug.GENERIC_NAME) || toNull(drug.TRADE_NAME) || toNull(drug.drugName) || toNull(drug.name) || toNull(drug.GENERICNAME) || toNull(drug.TRADENAME);
+                await ensureDrugExists(connection, drugCode, drugName);
 
-                    // ✅ ตรวจสอบและสร้างหน่วยถ้ายังไม่มี
-                    let unitCode = toNull(drug.UNIT_CODE) || 'TAB';
-                    unitCode = await ensureUnitExists(connection, unitCode, 'เม็ด');
+                let unitCode = toNull(drug.UNIT_CODE) || toNull(drug.unitCode) || toNull(drug.UNITCODE) || 'TAB';
+                unitCode = await ensureUnitExists(connection, unitCode, 'เม็ด');
 
-                    // Parse numeric values
-                    const qty = parseNumeric(drug.QTY);
-                    const unitPrice = parseNumeric(drug.UNIT_PRICE);
-                    const amt = parseNumeric(drug.AMT);
+                const qty = parseNumeric(drug.QTY) || parseNumeric(drug.qty) || 1;
+                const unitPrice = parseNumeric(drug.UNIT_PRICE) || parseNumeric(drug.unitPrice) || parseNumeric(drug.UNITPRICE) || 0;
+                const amt = parseNumeric(drug.AMT) || parseNumeric(drug.amt) || 0;
 
-                    await connection.execute(`
-                        INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    `, [
-                        vno,
-                        drugCode,
-                        qty !== null ? qty : 1,
-                        unitCode,
-                        unitPrice !== null ? unitPrice : 0,
-                        amt !== null ? amt : 0,
-                        toNull(drug.NOTE1) || '',
-                        toNull(drug.TIME1) || ''
-                    ]);
-                } catch (drugError) {
-                    // Continue with next drug
-                }
+                await connection.execute(`
+                    INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    vno,
+                    drugCode,
+                    qty,
+                    unitCode,
+                    unitPrice,
+                    amt,
+                    toNull(drug.NOTE1) || toNull(drug.note) || toNull(drug.NOTE) || '',
+                    toNull(drug.TIME1) || toNull(drug.time) || toNull(drug.TIME) || ''
+                ]);
             }
         }
 
         // ✅ บันทึกหัตถการ
         if (proceduresArray && proceduresArray.length > 0) {
-            try {
-                await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
-            } catch (deleteError) {
-                // Continue anyway
-            }
+            await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
 
             for (const proc of proceduresArray) {
-                try {
-                    let procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE);
-                    if (!procedureCode) continue;
+                // ✅ รองรับทั้ง uppercase และ lowercase field names
+                let procedureCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE) || toNull(proc.procedureCode) || toNull(proc.PROCEDURECODE) || toNull(proc.MEDICALPROCEDURECODE);
+                if (!procedureCode) continue;
 
-                    if (procedureCode.length > 15) {
-                        procedureCode = procedureCode.substring(0, 15);
-                    }
-
-                    const procedureName = toNull(proc.PROCEDURE_NAME) || toNull(proc.procedureName) || 'หัตถการที่ไม่ระบุชื่อ';
-
-                    // ✅ ตรวจสอบและสร้างหน่วยถ้ายังไม่มี
-                    let unitCode = toNull(proc.UNIT_CODE) || 'TIMES';
-                    unitCode = await ensureUnitExists(connection, unitCode, 'ครั้ง');
-
-                    // ✅ ตรวจสอบและสร้างหัตถการถ้ายังไม่มี
-                    await ensureProcedureExists(connection, procedureCode, procedureName);
-
-                    // Parse numeric values
-                    const procQty = parseNumeric(proc.QTY);
-                    const procUnitPrice = parseNumeric(proc.UNIT_PRICE);
-                    const procAmt = parseNumeric(proc.AMT);
-
-                    await connection.execute(`
-                        INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    `, [
-                        vno,
-                        procedureCode,
-                        procQty !== null ? procQty : 1,
-                        unitCode,
-                        procUnitPrice !== null ? procUnitPrice : 0,
-                        procAmt !== null ? procAmt : 0
-                    ]);
-                } catch (procError) {
-                    // Continue with next procedure
+                if (procedureCode.length > 15) {
+                    procedureCode = procedureCode.substring(0, 15);
                 }
+
+                const procedureName = toNull(proc.PROCEDURE_NAME) || toNull(proc.procedureName) || toNull(proc.name) || toNull(proc.PROCEDURENAME) || 'หัตถการที่ไม่ระบุชื่อ';
+
+                // ✅ แปลง 'ครั้ง' เป็น 'TIMES' ถ้าจำเป็น
+                let unitCode = toNull(proc.UNIT_CODE) || toNull(proc.unitCode) || toNull(proc.UNITCODE);
+                if (unitCode === 'ครั้ง') {
+                    unitCode = 'TIMES';
+                }
+                unitCode = unitCode || 'TIMES';
+                unitCode = await ensureUnitExists(connection, unitCode, 'ครั้ง');
+
+                await ensureProcedureExists(connection, procedureCode, procedureName);
+
+                const procQty = parseNumeric(proc.QTY) || parseNumeric(proc.qty) || 1;
+                const procUnitPrice = parseNumeric(proc.UNIT_PRICE) || parseNumeric(proc.unitPrice) || parseNumeric(proc.UNITPRICE) || 0;
+                const procAmt = parseNumeric(proc.AMT) || parseNumeric(proc.amt) || 0;
+
+                await connection.execute(`
+                    INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `, [
+                    vno,
+                    procedureCode,
+                    procQty,
+                    unitCode,
+                    procUnitPrice,
+                    procAmt
+                ]);
             }
         }
 
