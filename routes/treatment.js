@@ -56,35 +56,125 @@ function formatTimeForDB(date) {
     return timeStr; // ✅ ได้รูปแบบ HH:MM:SS จากเวลาไทย
 }
 
+// ✅ ตรวจสอบและสร้างหัตถการถ้ายังไม่มี (รองรับระบบที่ไม่มี FK)
 const ensureProcedureExists = async (connection, procedureCode, procedureName) => {
     try {
-        let code = (procedureCode || '').toString();
-        let name = (procedureName || '').toString();
+        let code = (procedureCode || '').toString().trim();
+        let name = (procedureName || '').toString().trim();
+
+        if (!code) {
+            console.warn('⚠️ Procedure code is empty');
+            return false;
+        }
 
         if (code.length > 15) {
             code = code.substring(0, 15);
         }
 
+        if (name.length > 255) {
+            name = name.substring(0, 255);
+        }
+
+        // ตรวจสอบว่ามีหัตถการนี้อยู่แล้วหรือไม่
         const [existing] = await connection.execute(
             'SELECT MEDICAL_PROCEDURE_CODE FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ? LIMIT 1',
             [code]
         );
 
         if (existing.length === 0) {
+            // สร้างหัตถการใหม่ถ้ายังไม่มี
             await connection.execute(`
                 INSERT INTO TABLE_MEDICAL_PROCEDURES 
                 (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
                 VALUES (?, ?, ?, 'Custom', 0)
             `, [
                 code,
-                name.substring(0, 255),
-                name.substring(0, 255)
+                name || 'หัตถการที่ไม่ระบุชื่อ',
+                name || 'Unnamed Procedure'
             ]);
 
             console.log(`✅ Added new procedure: ${code} - ${name}`);
         }
+        return true;
     } catch (error) {
         console.error('❌ Error ensuring procedure exists:', error.message);
+        // ไม่ throw error เพื่อให้สามารถดำเนินการต่อได้
+        return false;
+    }
+};
+
+// ✅ ตรวจสอบและสร้างยาถ้ายังไม่มี (รองรับระบบที่ไม่มี FK)
+const ensureDrugExists = async (connection, drugCode, drugName = null) => {
+    try {
+        const code = (drugCode || '').toString().trim();
+
+        if (!code) {
+            console.warn('⚠️ Drug code is empty');
+            return false;
+        }
+
+        // ตรวจสอบว่ามียานี้อยู่แล้วหรือไม่
+        const [existing] = await connection.execute(
+            'SELECT DRUG_CODE FROM TABLE_DRUG WHERE DRUG_CODE = ? LIMIT 1',
+            [code]
+        );
+
+        if (existing.length === 0) {
+            // สร้างยาใหม่ถ้ายังไม่มี
+            const genericName = drugName || `ยา ${code}`;
+            await connection.execute(`
+                INSERT INTO TABLE_DRUG 
+                (DRUG_CODE, GENERIC_NAME, TRADE_NAME, UNIT_CODE, UNIT_PRICE, SOCIAL_CARD, UCS_CARD) 
+                VALUES (?, ?, ?, 'TAB', 0, 'N', 'N')
+            `, [
+                code,
+                genericName.substring(0, 255),
+                genericName.substring(0, 255)
+            ]);
+
+            console.log(`✅ Added new drug: ${code} - ${genericName}`);
+        }
+        return true;
+    } catch (error) {
+        console.error('❌ Error ensuring drug exists:', error.message);
+        // ไม่ throw error เพื่อให้สามารถดำเนินการต่อได้
+        return false;
+    }
+};
+
+// ✅ ตรวจสอบและสร้างหน่วยถ้ายังไม่มี
+const ensureUnitExists = async (connection, unitCode, unitName = 'ครั้ง') => {
+    try {
+        const code = (unitCode || '').toString().trim();
+
+        if (!code) {
+            return 'TAB'; // คืนค่า default
+        }
+
+        // ตรวจสอบว่ามีหน่วยนี้อยู่แล้วหรือไม่
+        const [existing] = await connection.execute(
+            'SELECT UNIT_CODE FROM TABLE_UNIT WHERE UNIT_CODE = ? LIMIT 1',
+            [code]
+        );
+
+        if (existing.length === 0) {
+            try {
+                // พยายามสร้างหน่วยใหม่
+                await connection.execute(
+                    'INSERT INTO TABLE_UNIT (UNIT_CODE, UNIT_NAME) VALUES (?, ?)',
+                    [code, unitName || 'ครั้ง']
+                );
+                console.log(`✅ Added new unit: ${code} - ${unitName}`);
+            } catch (insertError) {
+                // ถ้า insert ไม่ได้ (อาจมี duplicate หรือ constraint อื่น) ให้ใช้ default
+                console.warn(`⚠️ Could not insert unit ${code}, using default`);
+                return 'TAB';
+            }
+        }
+        return code;
+    } catch (error) {
+        console.error('❌ Error ensuring unit exists:', error.message);
+        return 'TAB'; // คืนค่า default
     }
 };
 
@@ -406,6 +496,16 @@ router.post('/', async (req, res) => {
 
     const toNull = (value) => value === undefined ? null : value;
 
+    // Helper function to safely parse numeric values (including 0)
+    const parseNumeric = (value) => {
+        const nullValue = toNull(value);
+        if (nullValue === null) {
+            return null;
+        }
+        const parsed = parseFloat(nullValue);
+        return isNaN(parsed) ? null : parsed;
+    };
+
     try {
         connection = await db.getConnection();
         await connection.beginTransaction();
@@ -501,19 +601,63 @@ router.post('/', async (req, res) => {
 
         for (const drug of drugs) {
             if (drug.DRUG_CODE) {
+                // ✅ ตรวจสอบและสร้างยาถ้ายังไม่มี (รองรับระบบที่ไม่มี FK)
+                const drugName = drug.GENERIC_NAME || drug.TRADE_NAME || drug.drugName;
+                await ensureDrugExists(connection, drug.DRUG_CODE, drugName);
+
+                // ✅ ตรวจสอบและสร้างหน่วยถ้ายังไม่มี
+                let unitCode = drug.UNIT_CODE || 'TAB';
+                unitCode = await ensureUnitExists(connection, unitCode, 'เม็ด');
+
+                // Parse numeric values
+                const qty = parseNumeric(drug.QTY);
+                const unitPrice = parseNumeric(drug.UNIT_PRICE);
+                const amt = parseNumeric(drug.AMT);
+
                 await connection.execute(`
                     INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `, [VNO, drug.DRUG_CODE, drug.QTY, drug.UNIT_CODE, drug.UNIT_PRICE, drug.AMT, drug.NOTE1, drug.TIME1]);
+                `, [
+                    VNO,
+                    drug.DRUG_CODE,
+                    qty !== null ? qty : 1,
+                    unitCode,
+                    unitPrice !== null ? unitPrice : 0,
+                    amt !== null ? amt : 0,
+                    drug.NOTE1 || '',
+                    drug.TIME1 || ''
+                ]);
             }
         }
 
         for (const proc of procedures) {
-            if (proc.MEDICAL_PROCEDURE_CODE) {
+            if (proc.MEDICAL_PROCEDURE_CODE || proc.PROCEDURE_CODE) {
+                const procedureCode = proc.MEDICAL_PROCEDURE_CODE || proc.PROCEDURE_CODE;
+                const procedureName = proc.PROCEDURE_NAME || proc.procedureName || 'หัตถการที่ไม่ระบุชื่อ';
+
+                // ✅ ตรวจสอบและสร้างหัตถการถ้ายังไม่มี (รองรับระบบที่ไม่มี FK)
+                await ensureProcedureExists(connection, procedureCode, procedureName);
+
+                // ✅ ตรวจสอบและสร้างหน่วยถ้ายังไม่มี
+                let unitCode = proc.UNIT_CODE || 'TIMES';
+                unitCode = await ensureUnitExists(connection, unitCode, 'ครั้ง');
+
+                // Parse numeric values
+                const qty = parseNumeric(proc.QTY);
+                const unitPrice = parseNumeric(proc.UNIT_PRICE);
+                const amt = parseNumeric(proc.AMT);
+
                 await connection.execute(`
                     INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
                     VALUES (?, ?, ?, ?, ?, ?)
-                `, [VNO, proc.MEDICAL_PROCEDURE_CODE, proc.QTY, proc.UNIT_CODE, proc.UNIT_PRICE, proc.AMT]);
+                `, [
+                    VNO,
+                    procedureCode,
+                    qty !== null ? qty : 1,
+                    unitCode,
+                    unitPrice !== null ? unitPrice : 0,
+                    amt !== null ? amt : 0
+                ]);
             }
         }
 
@@ -717,45 +861,46 @@ router.put('/:vno', async (req, res) => {
 
             for (const drug of drugs) {
                 try {
-                    if (drug.DRUG_CODE) {
-                        let unitCode = toNull(drug.UNIT_CODE) || 'TAB';
-
-                        const [unitExists] = await connection.execute(
-                            'SELECT UNIT_CODE FROM TABLE_UNIT WHERE UNIT_CODE = ?',
-                            [unitCode]
-                        );
-
-                        if (unitExists.length === 0) {
-                            console.warn(`Unit code ${unitCode} not found, using TAB instead`);
-                            unitCode = 'TAB';
-                        }
-
-                        // Parse numeric values properly (handle 0 correctly)
-                        const qty = parseNumeric(drug.QTY);
-                        const unitPrice = parseNumeric(drug.UNIT_PRICE);
-                        const amt = parseNumeric(drug.AMT);
-
-                        await connection.execute(`
-                            INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        `, [
-                            vno,
-                            toNull(drug.DRUG_CODE),
-                            qty !== null ? qty : 1,
-                            unitCode,
-                            unitPrice !== null ? unitPrice : 0,
-                            amt !== null ? amt : 0,
-                            toNull(drug.NOTE1) || '',
-                            toNull(drug.TIME1) || ''
-                        ]);
-                    } else {
+                    const drugCode = toNull(drug.DRUG_CODE);
+                    if (!drugCode) {
                         console.warn('Drug missing DRUG_CODE, skipping:', drug);
+                        continue;
                     }
+
+                    // ✅ ตรวจสอบและสร้างยาถ้ายังไม่มี (รองรับระบบที่ไม่มี FK)
+                    const drugName = toNull(drug.GENERIC_NAME) || toNull(drug.TRADE_NAME) || toNull(drug.drugName);
+                    await ensureDrugExists(connection, drugCode, drugName);
+
+                    // ✅ ตรวจสอบและสร้างหน่วยถ้ายังไม่มี
+                    let unitCode = toNull(drug.UNIT_CODE) || 'TAB';
+                    unitCode = await ensureUnitExists(connection, unitCode, 'เม็ด');
+
+                    // Parse numeric values properly (handle 0 correctly)
+                    const qty = parseNumeric(drug.QTY);
+                    const unitPrice = parseNumeric(drug.UNIT_PRICE);
+                    const amt = parseNumeric(drug.AMT);
+
+                    await connection.execute(`
+                        INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        vno,
+                        drugCode,
+                        qty !== null ? qty : 1,
+                        unitCode,
+                        unitPrice !== null ? unitPrice : 0,
+                        amt !== null ? amt : 0,
+                        toNull(drug.NOTE1) || '',
+                        toNull(drug.TIME1) || ''
+                    ]);
+
+                    console.log(`✅ Successfully inserted drug: ${drugCode}`);
                 } catch (drugError) {
-                    console.error('Error inserting drug:', {
+                    console.error('❌ Error inserting drug:', {
                         error: drugError.message,
                         code: drugError.code,
                         sqlState: drugError.sqlState,
+                        sqlMessage: drugError.sqlMessage,
                         drug: drug
                     });
                     // Continue with next drug instead of failing entire update
@@ -784,29 +929,11 @@ router.put('/:vno', async (req, res) => {
                         procedureCode = procedureCode.substring(0, 15);
                     }
 
+                    // ✅ ตรวจสอบและสร้างหน่วยถ้ายังไม่มี
                     let unitCode = toNull(proc.UNIT_CODE) || 'TIMES';
+                    unitCode = await ensureUnitExists(connection, unitCode, 'ครั้ง');
 
-                    const [unitExists] = await connection.execute(
-                        'SELECT UNIT_CODE FROM TABLE_UNIT WHERE UNIT_CODE = ?',
-                        [unitCode]
-                    );
-
-                    if (unitExists.length === 0) {
-                        try {
-                            await connection.execute(
-                                'INSERT INTO TABLE_UNIT (UNIT_CODE, UNIT_NAME) VALUES (?, ?)',
-                                [unitCode, 'ครั้ง']
-                            );
-                            console.log(`Added new unit: ${unitCode}`);
-                        } catch (unitError) {
-                            const [firstUnit] = await connection.execute(
-                                'SELECT UNIT_CODE FROM TABLE_UNIT LIMIT 1'
-                            );
-                            unitCode = firstUnit.length > 0 ? firstUnit[0].UNIT_CODE : 'PC';
-                            console.log(`Using existing unit: ${unitCode}`);
-                        }
-                    }
-
+                    // ✅ ตรวจสอบและสร้างหัตถการถ้ายังไม่มี (รองรับระบบที่ไม่มี FK)
                     await ensureProcedureExists(connection, procedureCode, procedureName);
 
                     // Parse numeric values properly (handle 0 correctly)
