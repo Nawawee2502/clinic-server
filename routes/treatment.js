@@ -949,7 +949,7 @@ router.put('/:vno', async (req, res) => {
             ]);
         }
 
-        // ✅ บันทึกยา
+        // ✅ บันทึกยา - แก้ไขให้ลบเฉพาะเมื่อมีการส่ง drugs มา
         console.log(`💊 [${vno}] ========== DRUGS PROCESSING START ==========`);
         console.log(`💊 [${vno}] Checking drugsArray:`, {
             exists: !!drugsArray,
@@ -958,27 +958,28 @@ router.put('/:vno', async (req, res) => {
             data: JSON.stringify(drugsArray, null, 2)
         });
         
-        if (!drugsArray || drugsArray.length === 0) {
-            console.log(`⚠️ [${vno}] No drugs to save - drugsArray is empty or undefined`);
-        }
+        // ✅ ตรวจสอบว่ามีการส่ง drugs มาใน request หรือไม่ (ไม่ใช่แค่ empty array)
+        const hasDrugsInRequest = req.body.hasOwnProperty('drugs');
         
-        if (drugsArray && drugsArray.length > 0) {
-            const drugsStart = Date.now();
-            console.log(`💊 [${vno}] Processing ${drugsArray.length} drugs...`);
-            console.log(`💊 [${vno}] Drugs data:`, JSON.stringify(drugsArray, null, 2));
-            
-            // ✅ DELETE existing drugs
-            try {
-                const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
-                console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing drugs`);
-            } catch (deleteError) {
-                console.error(`❌ [${vno}] DELETE drugs ERROR:`, {
-                    message: deleteError.message,
-                    code: deleteError.code,
-                    sqlState: deleteError.sqlState
-                });
-                // ✅ ไม่ throw error เพื่อให้สามารถ insert ใหม่ได้
-            }
+        if (hasDrugsInRequest) {
+            // ✅ มีการส่ง drugs มาใน request - ให้ลบและบันทึกใหม่
+            if (drugsArray && drugsArray.length > 0) {
+                const drugsStart = Date.now();
+                console.log(`💊 [${vno}] Processing ${drugsArray.length} drugs...`);
+                console.log(`💊 [${vno}] Drugs data:`, JSON.stringify(drugsArray, null, 2));
+                
+                // ✅ DELETE existing drugs
+                try {
+                    const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
+                    console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing drugs`);
+                } catch (deleteError) {
+                    console.error(`❌ [${vno}] DELETE drugs ERROR:`, {
+                        message: deleteError.message,
+                        code: deleteError.code,
+                        sqlState: deleteError.sqlState
+                    });
+                    // ✅ ไม่ throw error เพื่อให้สามารถ insert ใหม่ได้
+                }
 
             // ✅ Loop Insert ทีละตัว (Sequential Insert) เพื่อความชัวร์และตรวจสอบ Master Data
             let successCount = 0;
@@ -1046,10 +1047,22 @@ router.put('/:vno', async (req, res) => {
                     // ✅ ไม่ throw error เพื่อให้บันทึกยาตัวอื่นต่อได้ แต่ log error ไว้
                 }
             }
-            console.log(`💊 [${vno}] Inserted ${successCount}/${drugsArray.length} drugs in ${Date.now() - drugsStart}ms`);
+                console.log(`💊 [${vno}] Inserted ${successCount}/${drugsArray.length} drugs in ${Date.now() - drugsStart}ms`);
+            } else {
+                // ✅ ส่ง drugs มาแต่เป็น empty array - ให้ลบข้อมูลเดิมออก
+                console.log(`💊 [${vno}] Empty drugs array received - deleting existing drugs`);
+                try {
+                    const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
+                    console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing drugs (empty array)`);
+                } catch (deleteError) {
+                    console.error(`❌ [${vno}] DELETE drugs ERROR:`, deleteError.message);
+                }
+            }
+        } else {
+            console.log(`⚠️ [${vno}] No drugs field in request - keeping existing drugs`);
         }
 
-        // ✅ บันทึกหัตถการ
+        // ✅ บันทึกหัตถการ - แก้ไขให้ลบเฉพาะเมื่อมีการส่ง procedures มา
         console.log(`🔧 [${vno}] ========== PROCEDURES PROCESSING START ==========`);
         console.log(`🔧 [${vno}] Checking proceduresArray:`, {
             exists: !!proceduresArray,
@@ -1058,27 +1071,28 @@ router.put('/:vno', async (req, res) => {
             data: JSON.stringify(proceduresArray, null, 2)
         });
         
-        if (!proceduresArray || proceduresArray.length === 0) {
-            console.log(`⚠️ [${vno}] No procedures to save - proceduresArray is empty or undefined`);
-        }
+        // ✅ ตรวจสอบว่ามีการส่ง procedures มาใน request หรือไม่ (ไม่ใช่แค่ empty array)
+        const hasProceduresInRequest = req.body.hasOwnProperty('procedures');
         
-        if (proceduresArray && proceduresArray.length > 0) {
-            const procStart = Date.now();
-            console.log(`🔧 [${vno}] Processing ${proceduresArray.length} procedures...`);
-            console.log(`🔧 [${vno}] Procedures data:`, JSON.stringify(proceduresArray, null, 2));
-            
-            // ✅ DELETE existing procedures
-            try {
-                const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
-                console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing procedures`);
-            } catch (deleteError) {
-                console.error(`❌ [${vno}] DELETE procedures ERROR:`, {
-                    message: deleteError.message,
-                    code: deleteError.code,
-                    sqlState: deleteError.sqlState
-                });
-                // ✅ ไม่ throw error เพื่อให้สามารถ insert ใหม่ได้
-            }
+        if (hasProceduresInRequest) {
+            // ✅ มีการส่ง procedures มาใน request - ให้ลบและบันทึกใหม่
+            if (proceduresArray && proceduresArray.length > 0) {
+                const procStart = Date.now();
+                console.log(`🔧 [${vno}] Processing ${proceduresArray.length} procedures...`);
+                console.log(`🔧 [${vno}] Procedures data:`, JSON.stringify(proceduresArray, null, 2));
+                
+                // ✅ DELETE existing procedures
+                try {
+                    const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
+                    console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing procedures`);
+                } catch (deleteError) {
+                    console.error(`❌ [${vno}] DELETE procedures ERROR:`, {
+                        message: deleteError.message,
+                        code: deleteError.code,
+                        sqlState: deleteError.sqlState
+                    });
+                    // ✅ ไม่ throw error เพื่อให้สามารถ insert ใหม่ได้
+                }
 
             let successCount = 0;
             for (let i = 0; i < proceduresArray.length; i++) {
@@ -1146,7 +1160,19 @@ router.put('/:vno', async (req, res) => {
                     // ✅ ไม่ throw error เพื่อให้บันทึกหัตถการตัวอื่นต่อได้ แต่ log error ไว้
                 }
             }
-            console.log(`🔧 [${vno}] Inserted ${successCount}/${proceduresArray.length} procedures in ${Date.now() - procStart}ms`);
+                console.log(`🔧 [${vno}] Inserted ${successCount}/${proceduresArray.length} procedures in ${Date.now() - procStart}ms`);
+            } else {
+                // ✅ ส่ง procedures มาแต่เป็น empty array - ให้ลบข้อมูลเดิมออก
+                console.log(`🔧 [${vno}] Empty procedures array received - deleting existing procedures`);
+                try {
+                    const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
+                    console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing procedures (empty array)`);
+                } catch (deleteError) {
+                    console.error(`❌ [${vno}] DELETE procedures ERROR:`, deleteError.message);
+                }
+            }
+        } else {
+            console.log(`⚠️ [${vno}] No procedures field in request - keeping existing procedures`);
         }
 
         if (labTests && Array.isArray(labTests) && labTests.length > 0) {
