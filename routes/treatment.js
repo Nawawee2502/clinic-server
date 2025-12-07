@@ -836,12 +836,21 @@ router.put('/:vno', async (req, res) => {
         
         console.log(`📦 [${vno}] Request body:`, {
             drugsCount: Array.isArray(drugs) ? drugs.length : 0,
-            proceduresCount: Array.isArray(procedures) ? procedures.length : 0
+            proceduresCount: Array.isArray(procedures) ? procedures.length : 0,
+            drugs: drugs,
+            procedures: procedures
         });
 
         // ✅ แปลงเป็น array ให้แน่ใจ (รองรับกรณีที่ส่งมาเป็น object เดียวหรือ undefined)
         const drugsArray = Array.isArray(drugs) ? drugs : (drugs && typeof drugs === 'object' ? [drugs] : []);
         const proceduresArray = Array.isArray(procedures) ? procedures : (procedures && typeof procedures === 'object' ? [procedures] : []);
+        
+        console.log(`📦 [${vno}] Parsed arrays:`, {
+            drugsArrayLength: drugsArray.length,
+            proceduresArrayLength: proceduresArray.length,
+            drugsArray: drugsArray,
+            proceduresArray: proceduresArray
+        });
 
         console.log(`📝 [${vno}] Updating TREATMENT1...`);
         const [updateResult] = await connection.execute(`
@@ -930,13 +939,22 @@ router.put('/:vno', async (req, res) => {
         }
 
         // ✅ บันทึกยา
+        console.log(`💊 [${vno}] Checking drugsArray:`, {
+            exists: !!drugsArray,
+            isArray: Array.isArray(drugsArray),
+            length: drugsArray?.length || 0,
+            data: drugsArray
+        });
+        
         if (drugsArray && drugsArray.length > 0) {
             const drugsStart = Date.now();
             console.log(`💊 [${vno}] Processing ${drugsArray.length} drugs...`);
+            console.log(`💊 [${vno}] Drugs data:`, JSON.stringify(drugsArray, null, 2));
             
             // ✅ DELETE existing drugs
             try {
-                await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
+                const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
+                console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing drugs`);
             } catch (deleteError) {
                 console.warn(`⚠️ [${vno}] DELETE drugs warning:`, deleteError.message);
             }
@@ -997,13 +1015,22 @@ router.put('/:vno', async (req, res) => {
         }
 
         // ✅ บันทึกหัตถการ
+        console.log(`🔧 [${vno}] Checking proceduresArray:`, {
+            exists: !!proceduresArray,
+            isArray: Array.isArray(proceduresArray),
+            length: proceduresArray?.length || 0,
+            data: proceduresArray
+        });
+        
         if (proceduresArray && proceduresArray.length > 0) {
             const procStart = Date.now();
             console.log(`🔧 [${vno}] Processing ${proceduresArray.length} procedures...`);
+            console.log(`🔧 [${vno}] Procedures data:`, JSON.stringify(proceduresArray, null, 2));
             
             // ✅ DELETE existing procedures
             try {
-                await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
+                const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
+                console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing procedures`);
             } catch (deleteError) {
                 console.warn(`⚠️ [${vno}] DELETE procedures warning:`, deleteError.message);
             }
