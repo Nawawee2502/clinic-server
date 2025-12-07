@@ -100,8 +100,8 @@ const ensureProcedureExists = async (connection, procedureCode, procedureName) =
                 if (insertError.code === 'ER_DUP_ENTRY') {
                     console.log(`ℹ️ Procedure ${code} already exists (race condition)`);
                 } else {
+                    // ไม่ throw error เพื่อให้สามารถดำเนินการต่อได้ (รองรับกรณีที่ไม่มี FK)
                     console.error(`❌ Error inserting procedure ${code}:`, insertError.message);
-                    throw insertError;
                 }
             }
         }
@@ -149,7 +149,8 @@ const ensureDrugExists = async (connection, drugCode, drugName = null) => {
                 if (insertError.code === 'ER_DUP_ENTRY') {
                     console.log(`ℹ️ Drug ${code} already exists (race condition)`);
                 } else {
-                    throw insertError;
+                    // ไม่ throw error เพื่อให้สามารถดำเนินการต่อได้ (รองรับกรณีที่ไม่มี FK)
+                    console.error(`❌ Error inserting drug ${code}:`, insertError.message);
                 }
             }
         }
@@ -954,7 +955,9 @@ router.put('/:vno', async (req, res) => {
 
         // ✅ บันทึกยา
         if (drugsArray && drugsArray.length > 0) {
+            console.log(`💊 Processing ${drugsArray.length} drugs for VNO: ${vno}`);
             await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
+            console.log(`✅ Deleted existing drugs for VNO: ${vno}`);
 
             for (const drug of drugsArray) {
                 // ✅ รองรับทั้ง uppercase และ lowercase field names
@@ -971,8 +974,9 @@ router.put('/:vno', async (req, res) => {
                 const unitPrice = parseNumeric(drug.UNIT_PRICE) || parseNumeric(drug.unitPrice) || parseNumeric(drug.UNITPRICE) || 0;
                 const amt = parseNumeric(drug.AMT) || parseNumeric(drug.amt) || 0;
 
+                // ✅ INSERT โดยไม่ต้องมี PK/FK - ใช้ try-catch เพื่อไม่ให้ transaction fail
                 try {
-                    await connection.execute(`
+                    const [result] = await connection.execute(`
                         INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     `, [
@@ -985,20 +989,25 @@ router.put('/:vno', async (req, res) => {
                         toNull(drug.NOTE1) || toNull(drug.note) || toNull(drug.NOTE) || '',
                         toNull(drug.TIME1) || toNull(drug.time) || toNull(drug.TIME) || ''
                     ]);
+                    console.log(`✅ INSERT drug success - VNO: ${vno}, DRUG_CODE: ${drugCode}, affectedRows: ${result.affectedRows}`);
                 } catch (insertError) {
-                    // ถ้าเป็น duplicate key error ให้ข้ามไป
-                    if (insertError.code === 'ER_DUP_ENTRY') {
-                        continue;
-                    }
-                    // Throw error อื่นๆ เพื่อให้ transaction rollback
-                    throw insertError;
+                    // ✅ Log error แต่ไม่ throw เพื่อให้ transaction continue (รองรับกรณีที่ไม่มี PK/FK)
+                    console.error(`❌ INSERT drug failed - VNO: ${vno}, DRUG_CODE: ${drugCode}`, {
+                        error: insertError.message,
+                        code: insertError.code,
+                        sqlState: insertError.sqlState,
+                        sqlMessage: insertError.sqlMessage
+                    });
+                    // Continue with next drug instead of failing entire transaction
                 }
             }
         }
 
         // ✅ บันทึกหัตถการ
         if (proceduresArray && proceduresArray.length > 0) {
+            console.log(`🔧 Processing ${proceduresArray.length} procedures for VNO: ${vno}`);
             await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
+            console.log(`✅ Deleted existing procedures for VNO: ${vno}`);
 
             for (const proc of proceduresArray) {
                 // ✅ รองรับทั้ง uppercase และ lowercase field names
@@ -1025,8 +1034,9 @@ router.put('/:vno', async (req, res) => {
                 const procUnitPrice = parseNumeric(proc.UNIT_PRICE) || parseNumeric(proc.unitPrice) || parseNumeric(proc.UNITPRICE) || 0;
                 const procAmt = parseNumeric(proc.AMT) || parseNumeric(proc.amt) || 0;
 
+                // ✅ INSERT โดยไม่ต้องมี PK/FK - ใช้ try-catch เพื่อไม่ให้ transaction fail
                 try {
-                    await connection.execute(`
+                    const [result] = await connection.execute(`
                         INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
                         VALUES (?, ?, ?, ?, ?, ?)
                     `, [
@@ -1037,13 +1047,16 @@ router.put('/:vno', async (req, res) => {
                         procUnitPrice,
                         procAmt
                     ]);
+                    console.log(`✅ INSERT procedure success - VNO: ${vno}, PROCEDURE_CODE: ${procedureCode}, affectedRows: ${result.affectedRows}`);
                 } catch (insertError) {
-                    // ถ้าเป็น duplicate key error ให้ข้ามไป
-                    if (insertError.code === 'ER_DUP_ENTRY') {
-                        continue;
-                    }
-                    // Throw error อื่นๆ เพื่อให้ transaction rollback
-                    throw insertError;
+                    // ✅ Log error แต่ไม่ throw เพื่อให้ transaction continue (รองรับกรณีที่ไม่มี PK/FK)
+                    console.error(`❌ INSERT procedure failed - VNO: ${vno}, PROCEDURE_CODE: ${procedureCode}`, {
+                        error: insertError.message,
+                        code: insertError.code,
+                        sqlState: insertError.sqlState,
+                        sqlMessage: insertError.sqlMessage
+                    });
+                    // Continue with next procedure instead of failing entire transaction
                 }
             }
         }
@@ -1072,7 +1085,13 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
+        // ✅ Commit transaction
+        console.log(`💾 Committing transaction for VNO: ${vno}`);
         await connection.commit();
+        console.log(`✅ Transaction committed successfully for VNO: ${vno}`);
+        
+        // ✅ Release connection ก่อนส่ง response
+        connection.release();
 
         res.json({
             success: true,
@@ -1105,8 +1124,7 @@ router.put('/:vno', async (req, res) => {
             error: error.message,
             code: error.code,
             sqlState: error.sqlState,
-            sqlMessage: error.sqlMessage,
-            stack: error.stack
+            sqlMessage: error.sqlMessage
         });
         res.status(500).json({
             success: false,
@@ -1116,7 +1134,11 @@ router.put('/:vno', async (req, res) => {
         });
     } finally {
         if (connection) {
-            connection.release();
+            try {
+                connection.release();
+            } catch (releaseError) {
+                // Connection อาจถูก release ไปแล้ว
+            }
         }
     }
 });
