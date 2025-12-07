@@ -807,7 +807,13 @@ router.put('/:vno', async (req, res) => {
         const connectionStart = Date.now();
         console.log(`🔗 [${vno}] Getting database connection...`);
         connection = await db.getConnection();
-        console.log(`✅ [${vno}] Got connection in ${Date.now() - connectionStart}ms`);
+        const connectionTime = Date.now() - connectionStart;
+        console.log(`✅ [${vno}] Got connection in ${connectionTime}ms`);
+        
+        if (connectionTime > 1000) {
+            console.warn(`⚠️ [${vno}] WARNING: Connection took ${connectionTime}ms (very slow!)`);
+        }
+        
         const transactionStart = Date.now();
         await connection.beginTransaction();
         console.log(`✅ [${vno}] Transaction started in ${Date.now() - transactionStart}ms`);
