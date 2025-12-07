@@ -852,6 +852,22 @@ router.put('/:vno', async (req, res) => {
             proceduresArray: proceduresArray
         });
 
+        // ✅ ตรวจสอบว่า VNO มีใน TREATMENT1 หรือไม่
+        const [checkVNO] = await connection.execute(
+            `SELECT VNO FROM TREATMENT1 WHERE VNO = ?`, [vno]
+        );
+        
+        if (checkVNO.length === 0) {
+            await connection.rollback();
+            console.error(`❌ [${vno}] VNO does not exist in TREATMENT1! Cannot insert drugs/procedures.`);
+            return res.status(404).json({
+                success: false,
+                message: `ไม่พบ VNO ${vno} ในระบบ กรุณาสร้าง TREATMENT1 ก่อน`
+            });
+        }
+        
+        console.log(`✅ [${vno}] VNO exists in TREATMENT1, proceeding with update...`);
+
         console.log(`📝 [${vno}] Updating TREATMENT1...`);
         const [updateResult] = await connection.execute(`
             UPDATE TREATMENT1 SET 
@@ -912,12 +928,7 @@ router.put('/:vno', async (req, res) => {
 
         console.log(`✅ [${vno}] TREATMENT1 updated, affectedRows: ${updateResult.affectedRows}`);
         if (updateResult.affectedRows === 0) {
-            await connection.rollback();
-            console.log(`⚠️ [${vno}] No rows affected, rolling back`);
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบข้อมูลการรักษาที่ต้องการอัปเดต'
-            });
+            console.warn(`⚠️ [${vno}] TREATMENT1 update affected 0 rows (may be normal if no fields changed)`);
         }
 
         if (diagnosis && typeof diagnosis === 'object') {
@@ -939,12 +950,17 @@ router.put('/:vno', async (req, res) => {
         }
 
         // ✅ บันทึกยา
+        console.log(`💊 [${vno}] ========== DRUGS PROCESSING START ==========`);
         console.log(`💊 [${vno}] Checking drugsArray:`, {
             exists: !!drugsArray,
             isArray: Array.isArray(drugsArray),
             length: drugsArray?.length || 0,
-            data: drugsArray
+            data: JSON.stringify(drugsArray, null, 2)
         });
+        
+        if (!drugsArray || drugsArray.length === 0) {
+            console.log(`⚠️ [${vno}] No drugs to save - drugsArray is empty or undefined`);
+        }
         
         if (drugsArray && drugsArray.length > 0) {
             const drugsStart = Date.now();
@@ -956,7 +972,12 @@ router.put('/:vno', async (req, res) => {
                 const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
                 console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing drugs`);
             } catch (deleteError) {
-                console.warn(`⚠️ [${vno}] DELETE drugs warning:`, deleteError.message);
+                console.error(`❌ [${vno}] DELETE drugs ERROR:`, {
+                    message: deleteError.message,
+                    code: deleteError.code,
+                    sqlState: deleteError.sqlState
+                });
+                // ✅ ไม่ throw error เพื่อให้สามารถ insert ใหม่ได้
             }
 
             // ✅ Loop Insert ทีละตัว (Sequential Insert) เพื่อความชัวร์และตรวจสอบ Master Data
@@ -990,7 +1011,18 @@ router.put('/:vno', async (req, res) => {
                     amt = qty * unitPrice;
                 }
 
-                console.log(`💊 [${vno}] Inserting drug: ${drugCode}, QTY=${qty}, UNIT_PRICE=${unitPrice}, AMT=${amt}`);
+                console.log(`💊 [${vno}] Inserting drug: ${drugCode}, QTY=${qty}, UNIT_PRICE=${unitPrice}, AMT=${amt}, UNIT_CODE=${unitCode}`);
+                console.log(`💊 [${vno}] INSERT VALUES:`, {
+                    VNO: vno,
+                    DRUG_CODE: drugCode,
+                    QTY: qty,
+                    UNIT_CODE: unitCode,
+                    UNIT_PRICE: unitPrice,
+                    AMT: amt,
+                    NOTE1: toNull(drug.NOTE1) || toNull(drug.note) || toNull(drug.NOTE) || '',
+                    TIME1: toNull(drug.TIME1) || toNull(drug.time) || toNull(drug.TIME) || ''
+                });
+                
                 try {
                     const [result] = await connection.execute(`
                         INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
@@ -1000,27 +1032,35 @@ router.put('/:vno', async (req, res) => {
                         toNull(drug.NOTE1) || toNull(drug.note) || toNull(drug.NOTE) || '',
                         toNull(drug.TIME1) || toNull(drug.time) || toNull(drug.TIME) || ''
                     ]);
-                    console.log(`✅ [${vno}] Drug ${drugCode} inserted successfully, affectedRows: ${result.affectedRows}`);
+                    console.log(`✅ [${vno}] Drug ${drugCode} inserted successfully, affectedRows: ${result.affectedRows}, insertId: ${result.insertId}`);
                     successCount++;
                 } catch (insertError) {
                     console.error(`❌ [${vno}] INSERT drug ${drugCode} FAILED:`, {
                         message: insertError.message,
                         code: insertError.code,
                         sqlState: insertError.sqlState,
-                        sqlMessage: insertError.sqlMessage
+                        sqlMessage: insertError.sqlMessage,
+                        errno: insertError.errno,
+                        sql: `INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1) VALUES ('${vno}', '${drugCode}', ${qty}, '${unitCode}', ${unitPrice}, ${amt}, '${toNull(drug.NOTE1) || ''}', '${toNull(drug.TIME1) || ''}')`
                     });
+                    // ✅ ไม่ throw error เพื่อให้บันทึกยาตัวอื่นต่อได้ แต่ log error ไว้
                 }
             }
             console.log(`💊 [${vno}] Inserted ${successCount}/${drugsArray.length} drugs in ${Date.now() - drugsStart}ms`);
         }
 
         // ✅ บันทึกหัตถการ
+        console.log(`🔧 [${vno}] ========== PROCEDURES PROCESSING START ==========`);
         console.log(`🔧 [${vno}] Checking proceduresArray:`, {
             exists: !!proceduresArray,
             isArray: Array.isArray(proceduresArray),
             length: proceduresArray?.length || 0,
-            data: proceduresArray
+            data: JSON.stringify(proceduresArray, null, 2)
         });
+        
+        if (!proceduresArray || proceduresArray.length === 0) {
+            console.log(`⚠️ [${vno}] No procedures to save - proceduresArray is empty or undefined`);
+        }
         
         if (proceduresArray && proceduresArray.length > 0) {
             const procStart = Date.now();
@@ -1032,7 +1072,12 @@ router.put('/:vno', async (req, res) => {
                 const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]);
                 console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing procedures`);
             } catch (deleteError) {
-                console.warn(`⚠️ [${vno}] DELETE procedures warning:`, deleteError.message);
+                console.error(`❌ [${vno}] DELETE procedures ERROR:`, {
+                    message: deleteError.message,
+                    code: deleteError.code,
+                    sqlState: deleteError.sqlState
+                });
+                // ✅ ไม่ throw error เพื่อให้สามารถ insert ใหม่ได้
             }
 
             let successCount = 0;
@@ -1070,7 +1115,16 @@ router.put('/:vno', async (req, res) => {
                     procAmt = procQty * procUnitPrice;
                 }
 
-                console.log(`🔧 [${vno}] Inserting procedure: ${procedureCode}, QTY=${procQty}, UNIT_PRICE=${procUnitPrice}, AMT=${procAmt}`);
+                console.log(`🔧 [${vno}] Inserting procedure: ${procedureCode}, QTY=${procQty}, UNIT_PRICE=${procUnitPrice}, AMT=${procAmt}, UNIT_CODE=${unitCode}`);
+                console.log(`🔧 [${vno}] INSERT VALUES:`, {
+                    VNO: vno,
+                    MEDICAL_PROCEDURE_CODE: procedureCode,
+                    QTY: procQty,
+                    UNIT_CODE: unitCode,
+                    UNIT_PRICE: procUnitPrice,
+                    AMT: procAmt
+                });
+                
                 try {
                     const [result] = await connection.execute(`
                         INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT)
@@ -1078,15 +1132,18 @@ router.put('/:vno', async (req, res) => {
                     `, [
                         vno, procedureCode, procQty, unitCode, procUnitPrice, procAmt
                     ]);
-                    console.log(`✅ [${vno}] Procedure ${procedureCode} inserted successfully, affectedRows: ${result.affectedRows}`);
+                    console.log(`✅ [${vno}] Procedure ${procedureCode} inserted successfully, affectedRows: ${result.affectedRows}, insertId: ${result.insertId}`);
                     successCount++;
                 } catch (insertError) {
                     console.error(`❌ [${vno}] INSERT procedure ${procedureCode} FAILED:`, {
                         message: insertError.message,
                         code: insertError.code,
                         sqlState: insertError.sqlState,
-                        sqlMessage: insertError.sqlMessage
+                        sqlMessage: insertError.sqlMessage,
+                        errno: insertError.errno,
+                        sql: `INSERT INTO TREATMENT1_MED_PROCEDURE (VNO, MEDICAL_PROCEDURE_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT) VALUES ('${vno}', '${procedureCode}', ${procQty}, '${unitCode}', ${procUnitPrice}, ${procAmt})`
                     });
+                    // ✅ ไม่ throw error เพื่อให้บันทึกหัตถการตัวอื่นต่อได้ แต่ log error ไว้
                 }
             }
             console.log(`🔧 [${vno}] Inserted ${successCount}/${proceduresArray.length} procedures in ${Date.now() - procStart}ms`);
@@ -1116,11 +1173,53 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
+        // ✅ ตรวจสอบว่ามีข้อมูลที่จะบันทึกหรือไม่
+        const hasDataToSave = (drugsArray && drugsArray.length > 0) || 
+                              (proceduresArray && proceduresArray.length > 0) ||
+                              (labTests && Array.isArray(labTests) && labTests.length > 0) ||
+                              (radioTests && Array.isArray(radioTests) && radioTests.length > 0);
+        
+        console.log(`📊 [${vno}] Summary before commit:`, {
+            hasDataToSave,
+            drugsCount: drugsArray?.length || 0,
+            proceduresCount: proceduresArray?.length || 0,
+            labTestsCount: Array.isArray(labTests) ? labTests.length : 0,
+            radioTestsCount: Array.isArray(radioTests) ? radioTests.length : 0
+        });
+
         // ✅ Commit transaction ก่อนส่ง response
         const commitStart = Date.now();
         console.log(`💾 [${vno}] ========== COMMITTING TRANSACTION... (elapsed: ${Date.now() - startTime}ms) ==========`);
         await connection.commit();
         console.log(`💾 [${vno}] ✅ COMMIT DONE in ${Date.now() - commitStart}ms (total: ${Date.now() - startTime}ms)`);
+        
+        // ✅ ตรวจสอบว่าข้อมูลถูกบันทึกจริงหรือไม่ (ใช้ connection เดิมก่อน release)
+        if (hasDataToSave) {
+            try {
+                const [verifyDrugs] = await connection.execute(
+                    `SELECT COUNT(*) as count FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]
+                );
+                const [verifyProcedures] = await connection.execute(
+                    `SELECT COUNT(*) as count FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?`, [vno]
+                );
+                console.log(`✅ [${vno}] Verification after commit:`, {
+                    drugsInDB: verifyDrugs[0]?.count || 0,
+                    proceduresInDB: verifyProcedures[0]?.count || 0,
+                    expectedDrugs: drugsArray?.length || 0,
+                    expectedProcedures: proceduresArray?.length || 0
+                });
+                
+                // ✅ แจ้งเตือนถ้าข้อมูลไม่ตรง
+                if (verifyDrugs[0]?.count !== (drugsArray?.length || 0)) {
+                    console.error(`⚠️ [${vno}] WARNING: Drugs count mismatch! Expected: ${drugsArray?.length || 0}, Found: ${verifyDrugs[0]?.count || 0}`);
+                }
+                if (verifyProcedures[0]?.count !== (proceduresArray?.length || 0)) {
+                    console.error(`⚠️ [${vno}] WARNING: Procedures count mismatch! Expected: ${proceduresArray?.length || 0}, Found: ${verifyProcedures[0]?.count || 0}`);
+                }
+            } catch (verifyError) {
+                console.warn(`⚠️ [${vno}] Could not verify data after commit:`, verifyError.message);
+            }
+        }
         
         const totalTime = Date.now() - startTime;
         console.log(`✅ [${vno}] ========== SUCCESS Total request time: ${totalTime}ms ==========`);
