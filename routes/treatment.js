@@ -330,7 +330,9 @@ router.get('/:vno', async (req, res) => {
                 COALESCE(d.UNIT_PRICE, 0) as DRUG_UNIT_PRICE,
                 COALESCE(d.eat1, '') as eat1,
                 COALESCE(u.UNIT_NAME, td.UNIT_CODE) as UNIT_NAME,
-                COALESCE(tdg.TYPE_DRUG_NAME, d.Type1, '') as TYPE_DRUG_NAME
+                COALESCE(tdg.TYPE_DRUG_NAME, d.Type1, '') as TYPE_DRUG_NAME,
+                COALESCE(d.UCS_CARD, 'N') as UCS_CARD,
+                COALESCE(d.Indication1, '') as Indication1
             FROM TREATMENT1_DRUG td
             LEFT JOIN TABLE_DRUG d ON td.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON td.UNIT_CODE = u.UNIT_CODE
@@ -340,7 +342,10 @@ router.get('/:vno', async (req, res) => {
             ORDER BY td.DRUG_CODE
         `, [vno]);
 
-        console.log(`Found ${drugs.length} drugs for VNO: ${vno}`);
+        console.log(`✅ Found ${drugs.length} drugs for VNO: ${vno}`);
+        if (drugs.length > 0) {
+            console.log('📦 Sample drug data:', JSON.stringify(drugs[0], null, 2));
+        }
 
         const [procedures] = await db.execute(`
             SELECT 
@@ -353,7 +358,9 @@ router.get('/:vno', async (req, res) => {
                 COALESCE(mp.MED_PRO_NAME_THAI, 'หัตถการไม่ระบุ') as MED_PRO_NAME_THAI,
                 COALESCE(mp.MED_PRO_NAME_ENG, '') as MED_PRO_NAME_ENG,
                 COALESCE(mp.MED_PRO_TYPE, 'ทั่วไป') as MED_PRO_TYPE,
-                COALESCE(u.UNIT_NAME, tmp.UNIT_CODE) as UNIT_NAME
+                COALESCE(u.UNIT_NAME, tmp.UNIT_CODE) as UNIT_NAME,
+                tmp.MEDICAL_PROCEDURE_CODE as PROCEDURE_CODE,
+                COALESCE(mp.MED_PRO_NAME_THAI, 'หัตถการไม่ระบุ') as PROCEDURE_NAME
             FROM TREATMENT1_MED_PROCEDURE tmp
             LEFT JOIN TABLE_MEDICAL_PROCEDURES mp ON tmp.MEDICAL_PROCEDURE_CODE = mp.MEDICAL_PROCEDURE_CODE
             LEFT JOIN TABLE_UNIT u ON tmp.UNIT_CODE = u.UNIT_CODE
@@ -361,7 +368,10 @@ router.get('/:vno', async (req, res) => {
             ORDER BY tmp.MEDICAL_PROCEDURE_CODE
         `, [vno]);
 
-        console.log(`Found ${procedures.length} procedures for VNO: ${vno}`);
+        console.log(`✅ Found ${procedures.length} procedures for VNO: ${vno}`);
+        if (procedures.length > 0) {
+            console.log('🔧 Sample procedure data:', JSON.stringify(procedures[0], null, 2));
+        }
 
         const [labTests] = await db.execute(`
             SELECT 
@@ -397,17 +407,17 @@ router.get('/:vno', async (req, res) => {
         const totalRadioCost = radioTests.reduce((sum, radio) => sum + (parseFloat(radio.PRICE) || 0), 0);
         const totalCost = totalDrugCost + totalProcedureCost + totalLabCost + totalRadioCost;
 
-        console.log(`Calculated costs - Drugs: ${totalDrugCost}, Procedures: ${totalProcedureCost}, Total: ${totalCost}`);
+        console.log(`💰 Calculated costs - Drugs: ${totalDrugCost}, Procedures: ${totalProcedureCost}, Total: ${totalCost}`);
 
-        res.json({
+        const responseData = {
             success: true,
             data: {
                 treatment: treatment[0],
                 diagnosis: diagnosis[0] || null,
-                drugs: drugs,
-                procedures: procedures,
-                labTests: labTests,
-                radiologicalTests: radioTests,
+                drugs: drugs || [],
+                procedures: procedures || [],
+                labTests: labTests || [],
+                radiologicalTests: radioTests || [],
                 summary: {
                     totalDrugCost: totalDrugCost,
                     totalProcedureCost: totalProcedureCost,
@@ -420,7 +430,16 @@ router.get('/:vno', async (req, res) => {
                     radioTestCount: radioTests.length
                 }
             }
+        };
+
+        console.log(`📤 Sending response for VNO ${vno}:`, {
+            drugsCount: responseData.data.drugs.length,
+            proceduresCount: responseData.data.procedures.length,
+            labTestsCount: responseData.data.labTests.length,
+            radioTestsCount: responseData.data.radiologicalTests.length
         });
+
+        res.json(responseData);
 
     } catch (error) {
         console.error('Error fetching treatment details for VNO:', req.params.vno, error);
@@ -524,6 +543,14 @@ router.post('/', async (req, res) => {
             INVESTIGATION_NOTES
         } = req.body;
 
+        console.log('📥 POST /treatments - Received data:', {
+            HNNO,
+            drugsCount: Array.isArray(drugs) ? drugs.length : 0,
+            proceduresCount: Array.isArray(procedures) ? procedures.length : 0,
+            drugs: Array.isArray(drugs) ? drugs : [],
+            procedures: Array.isArray(procedures) ? procedures : []
+        });
+
         if (!HNNO || !EMP_CODE) {
             return res.status(400).json({
                 success: false,
@@ -599,8 +626,17 @@ router.post('/', async (req, res) => {
             `, [VNO, diagnosis.CHIEF_COMPLAINT, diagnosis.PRESENT_ILL, diagnosis.PHYSICAL_EXAM, diagnosis.PLAN1]);
         }
 
+        console.log(`💊 Processing ${drugs.length} drugs for VNO: ${VNO}`);
+        let insertedDrugsCount = 0;
         for (const drug of drugs) {
-            if (drug.DRUG_CODE) {
+            try {
+                if (!drug.DRUG_CODE) {
+                    console.warn('⚠️ Drug missing DRUG_CODE, skipping:', drug);
+                    continue;
+                }
+
+                console.log(`💊 Processing drug: ${drug.DRUG_CODE}`, drug);
+
                 // ✅ ตรวจสอบและสร้างยาถ้ายังไม่มี (รองรับระบบที่ไม่มี FK)
                 const drugName = drug.GENERIC_NAME || drug.TRADE_NAME || drug.drugName;
                 await ensureDrugExists(connection, drug.DRUG_CODE, drugName);
@@ -627,12 +663,33 @@ router.post('/', async (req, res) => {
                     drug.NOTE1 || '',
                     drug.TIME1 || ''
                 ]);
+
+                insertedDrugsCount++;
+                console.log(`✅ Successfully inserted drug: ${drug.DRUG_CODE}`);
+            } catch (drugError) {
+                console.error(`❌ Error inserting drug ${drug.DRUG_CODE}:`, {
+                    error: drugError.message,
+                    code: drugError.code,
+                    sqlState: drugError.sqlState,
+                    drug: drug
+                });
+                // Continue with next drug instead of failing entire transaction
             }
         }
+        console.log(`✅ Inserted ${insertedDrugsCount} out of ${drugs.length} drugs`);
 
+        console.log(`🔧 Processing ${procedures.length} procedures for VNO: ${VNO}`);
+        let insertedProceduresCount = 0;
         for (const proc of procedures) {
-            if (proc.MEDICAL_PROCEDURE_CODE || proc.PROCEDURE_CODE) {
+            try {
                 const procedureCode = proc.MEDICAL_PROCEDURE_CODE || proc.PROCEDURE_CODE;
+                if (!procedureCode) {
+                    console.warn('⚠️ Procedure missing code, skipping:', proc);
+                    continue;
+                }
+
+                console.log(`🔧 Processing procedure: ${procedureCode}`, proc);
+
                 const procedureName = proc.PROCEDURE_NAME || proc.procedureName || 'หัตถการที่ไม่ระบุชื่อ';
 
                 // ✅ ตรวจสอบและสร้างหัตถการถ้ายังไม่มี (รองรับระบบที่ไม่มี FK)
@@ -658,8 +715,20 @@ router.post('/', async (req, res) => {
                     unitPrice !== null ? unitPrice : 0,
                     amt !== null ? amt : 0
                 ]);
+
+                insertedProceduresCount++;
+                console.log(`✅ Successfully inserted procedure: ${procedureCode}`);
+            } catch (procError) {
+                console.error(`❌ Error inserting procedure:`, {
+                    error: procError.message,
+                    code: procError.code,
+                    sqlState: procError.sqlState,
+                    procedure: proc
+                });
+                // Continue with next procedure instead of failing entire transaction
             }
         }
+        console.log(`✅ Inserted ${insertedProceduresCount} out of ${procedures.length} procedures`);
 
         for (const lab of labTests) {
             if (lab.LABCODE) {
