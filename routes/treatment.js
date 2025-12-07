@@ -1042,12 +1042,9 @@ router.put('/:vno', async (req, res) => {
         }
 
         // ✅ Commit transaction
-        console.log(`💾 Committing transaction for VNO: ${vno}`);
         await connection.commit();
-        console.log(`✅ Transaction committed successfully for VNO: ${vno}`);
         
-        // ✅ ส่ง response ก่อน release connection เพื่อความเร็ว
-        console.log(`📤 Sending response for VNO: ${vno}`);
+        // ✅ ส่ง response ทันที
         res.json({
             success: true,
             message: 'อัปเดตข้อมูลการรักษาและการชำระเงินสำเร็จ',
@@ -1065,9 +1062,15 @@ router.put('/:vno', async (req, res) => {
             }
         });
 
-        // ✅ Release connection หลังส่ง response
+        // ✅ Release connection หลังส่ง response (ไม่ await)
         if (connection) {
-            connection.release();
+            setImmediate(() => {
+                try {
+                    connection.release();
+                } catch (e) {
+                    // Ignore
+                }
+            });
         }
 
     } catch (error) {
