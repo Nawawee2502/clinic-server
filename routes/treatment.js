@@ -284,8 +284,9 @@ router.get('/:vno', async (req, res) => {
             SELECT * FROM TREATMENT1_DIAGNOSIS WHERE VNO = ?
         `, [vno]);
 
+        // ✅ Query โดยใช้ subquery เพื่อเลือก record แรกที่เจอของแต่ละ DRUG_CODE
         const [drugs] = await db.execute(`
-            SELECT DISTINCT
+            SELECT 
                 td.VNO,
                 td.DRUG_CODE,
                 td.QTY,
@@ -305,11 +306,17 @@ router.get('/:vno', async (req, res) => {
                 COALESCE(d.UCS_CARD, 'N') as UCS_CARD,
                 COALESCE(d.Indication1, '') as Indication1
             FROM TREATMENT1_DRUG td
+            INNER JOIN (
+                SELECT DRUG_CODE, MIN(VNO) as MIN_VNO 
+                FROM TREATMENT1_DRUG 
+                WHERE VNO = ?
+                GROUP BY DRUG_CODE
+            ) first_drug ON td.DRUG_CODE = first_drug.DRUG_CODE AND td.VNO = first_drug.MIN_VNO
             LEFT JOIN TABLE_DRUG d ON td.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON td.UNIT_CODE = u.UNIT_CODE
             WHERE td.VNO = ?
             ORDER BY td.DRUG_CODE
-        `, [vno]);
+        `, [vno, vno]);
 
         console.log(`✅ Found ${drugs.length} drugs for VNO: ${vno}`);
         if (drugs.length > 0) {
