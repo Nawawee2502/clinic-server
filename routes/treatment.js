@@ -285,7 +285,7 @@ router.get('/:vno', async (req, res) => {
         `, [vno]);
 
         const [drugs] = await db.execute(`
-            SELECT 
+            SELECT DISTINCT
                 td.VNO,
                 td.DRUG_CODE,
                 td.QTY,
@@ -299,14 +299,14 @@ router.get('/:vno', async (req, res) => {
                 COALESCE(d.UNIT_PRICE, 0) as DRUG_UNIT_PRICE,
                 COALESCE(d.eat1, '') as eat1,
                 COALESCE(u.UNIT_NAME, td.UNIT_CODE) as UNIT_NAME,
-                COALESCE(tdg.TYPE_DRUG_NAME, d.Type1, '') as TYPE_DRUG_NAME,
+                COALESCE((SELECT tdg.TYPE_DRUG_NAME FROM TYPE_DRUG tdg 
+                    WHERE tdg.TYPE_DRUG_CODE = d.Type1 OR tdg.TYPE_DRUG_NAME = d.Type1 
+                    LIMIT 1), d.Type1, '') as TYPE_DRUG_NAME,
                 COALESCE(d.UCS_CARD, 'N') as UCS_CARD,
                 COALESCE(d.Indication1, '') as Indication1
             FROM TREATMENT1_DRUG td
             LEFT JOIN TABLE_DRUG d ON td.DRUG_CODE = d.DRUG_CODE
             LEFT JOIN TABLE_UNIT u ON td.UNIT_CODE = u.UNIT_CODE
-            LEFT JOIN TYPE_DRUG tdg 
-                ON d.Type1 = tdg.TYPE_DRUG_CODE OR d.Type1 = tdg.TYPE_DRUG_NAME
             WHERE td.VNO = ?
             ORDER BY td.DRUG_CODE
         `, [vno]);
