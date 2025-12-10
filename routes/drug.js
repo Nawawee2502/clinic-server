@@ -110,6 +110,13 @@ router.get('/:code', async (req, res) => {
             LEFT JOIN TABLE_UNIT u1 ON d.UNIT_CODE = u1.UNIT_CODE
             LEFT JOIN TABLE_UNIT u2 ON d.UNIT_CODE1 = u2.UNIT_CODE
             WHERE d.DRUG_CODE = ?
+            ORDER BY 
+                CASE 
+                    WHEN d.GENERIC_NAME NOT LIKE 'ยา %' AND d.GENERIC_NAME != d.DRUG_CODE THEN 0
+                    ELSE 1
+                END,
+                d.GENERIC_NAME
+            LIMIT 1
         `, [code]);
 
         if (rows.length === 0) {
