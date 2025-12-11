@@ -9,7 +9,7 @@ router.get('/', async (req, res) => {
     try {
         const pool = await dbPoolPromise;
         connection = await pool.getConnection();
-        
+
         // Pagination parameters
         const page = Math.max(1, parseInt(req.query.page) || 1);
         const limit = Math.min(100, Math.max(10, parseInt(req.query.limit) || 50)); // Default 50, max 100
@@ -198,24 +198,24 @@ router.get('/search/:term', async (req, res) => {
         // ค้นหาในแต่ละ field
         searchConditions.push('p.HNCODE LIKE ?');
         searchParams.push(searchTerm);
-        
+
         searchConditions.push('p.IDNO LIKE ?');
         searchParams.push(searchTerm);
-        
+
         searchConditions.push('p.NAME1 LIKE ?');
         searchParams.push(searchTerm);
-        
+
         searchConditions.push('p.SURNAME LIKE ?');
         searchParams.push(searchTerm);
-        
+
         // ค้นหาชื่อเต็ม (CONCAT NAME1 และ SURNAME)
         searchConditions.push('CONCAT(COALESCE(p.NAME1, ""), " ", COALESCE(p.SURNAME, "")) LIKE ?');
         searchParams.push(searchTerm);
-        
+
         // ค้นหาชื่อเต็มแบบ reverse (SURNAME + NAME1)
         searchConditions.push('CONCAT(COALESCE(p.SURNAME, ""), " ", COALESCE(p.NAME1, "")) LIKE ?');
         searchParams.push(searchTerm);
-        
+
         // ถ้ามีหลายคำ ให้ค้นหาทั้งชื่อและนามสกุล (เช่น "มงคล มาลาพุด")
         if (searchWords.length >= 2) {
             // ค้นหาที่ชื่อมีคำแรก และนามสกุลมีคำที่สอง
@@ -363,7 +363,7 @@ router.post('/', async (req, res) => {
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
             ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD
+            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, ID_TYPE
         } = req.body;
 
         if (!NAME1) {
@@ -432,15 +432,15 @@ router.post('/', async (req, res) => {
               WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
               CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
               ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-              TREATMENT_CARD, SOCIAL_CARD, UCS_CARD
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, ID_TYPE
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `, [
                     hnToUse, IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
                     BLOOD_GROUP1, OCCUPATION1, ORIGIN1, NATIONAL1, RELIGION1, STATUS1,
                     WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
                     CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
                     ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-                    TREATMENT_CARD, SOCIAL_CARD, UCS_CARD
+                    TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, ID_TYPE || 'IDCARD'
                 ]);
 
                 await connection.commit();
@@ -507,7 +507,7 @@ router.put('/:hn', async (req, res) => {
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
             ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD
+            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, ID_TYPE
         } = req.body;
 
         // Validate required fields
@@ -558,7 +558,7 @@ router.put('/:hn', async (req, res) => {
         WEIGHT1 = ?, HIGH1 = ?, CARD_ADDR1 = ?, CARD_TUMBOL_CODE = ?, CARD_AMPHER_CODE = ?,
         CARD_PROVINCE_CODE = ?, ADDR1 = ?, TUMBOL_CODE = ?, AMPHER_CODE = ?, PROVINCE_CODE = ?,
         ZIPCODE = ?, TEL1 = ?, EMAIL1 = ?, DISEASE1 = ?, DRUG_ALLERGY = ?, FOOD_ALLERGIES = ?,
-        TREATMENT_CARD = ?, SOCIAL_CARD = ?, UCS_CARD = ?
+        TREATMENT_CARD = ?, SOCIAL_CARD = ?, UCS_CARD = ?, ID_TYPE = ?
       WHERE HNCODE = ?
     `, [
             IDNO, PRENAME, NAME1, SURNAME, SEX, BDATE, AGE,
@@ -566,7 +566,8 @@ router.put('/:hn', async (req, res) => {
             WEIGHT1, HIGH1, CARD_ADDR1, CARD_TUMBOL_CODE, CARD_AMPHER_CODE,
             CARD_PROVINCE_CODE, ADDR1, TUMBOL_CODE, AMPHER_CODE, PROVINCE_CODE,
             ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
-            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, hn
+            ZIPCODE, TEL1, EMAIL1, DISEASE1, DRUG_ALLERGY, FOOD_ALLERGIES,
+            TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, ID_TYPE || 'IDCARD', hn
         ]);
 
         if (result.affectedRows === 0) {
@@ -619,16 +620,16 @@ router.put('/:hn', async (req, res) => {
 
         // Prevent server crash by always sending response
         if (!res.headersSent) {
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลผู้ป่วย',
+            res.status(500).json({
+                success: false,
+                message: 'เกิดข้อผิดพลาดในการแก้ไขข้อมูลผู้ป่วย',
                 error: error.message,
                 details: process.env.NODE_ENV === 'development' ? {
                     code: error.code,
                     sqlState: error.sqlState,
                     sqlMessage: error.sqlMessage
                 } : undefined
-        });
+            });
         }
     }
 });
@@ -685,27 +686,27 @@ router.delete('/:hn', async (req, res) => {
         if (vnoList.length > 0) {
             // ลบข้อมูลในตารางที่เกี่ยวข้อง
             const placeholders = vnoList.map(() => '?').join(',');
-            
+
             await connection.execute(
                 `DELETE FROM TREATMENT1_DIAGNOSIS WHERE VNO IN (${placeholders})`,
                 vnoList
             );
-            
+
             await connection.execute(
                 `DELETE FROM TREATMENT1_DRUG WHERE VNO IN (${placeholders})`,
                 vnoList
             );
-            
+
             await connection.execute(
                 `DELETE FROM TREATMENT1_MED_PROCEDURE WHERE VNO IN (${placeholders})`,
                 vnoList
             );
-            
+
             await connection.execute(
                 `DELETE FROM TREATMENT1_LABORATORY WHERE VNO IN (${placeholders})`,
                 vnoList
             );
-            
+
             await connection.execute(
                 `DELETE FROM TREATMENT1_RADIOLOGICAL WHERE VNO IN (${placeholders})`,
                 vnoList
@@ -747,12 +748,12 @@ router.delete('/:hn', async (req, res) => {
                     const columnNames = columns.map(c => c.COLUMN_NAME);
                     const conditions = columnNames.map(col => `${col} = ?`).join(' OR ');
                     const values = columnNames.map(() => hn);
-                    
+
                     const [deleteResult] = await connection.execute(
                         `DELETE FROM ${tableName} WHERE ${conditions}`,
                         values
                     );
-                    
+
                     if (deleteResult.affectedRows > 0) {
                         console.log(`✅ Deleted ${deleteResult.affectedRows} record(s) from ${tableName} where ${conditions}`);
                     }
