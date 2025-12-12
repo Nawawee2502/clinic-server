@@ -428,6 +428,54 @@ router.get('/:vno', async (req, res) => {
     }
 });
 
+// ✅ GET Check UCS Usage Count for Current Month
+router.get('/check-ucs-usage/:hn', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { hn } = req.params;
+
+        // Get limits (hardcoded for now, or could come from config)
+        const MAX_UCS_VISITS = 2;
+
+        const thailandTime = getThailandTime();
+        const year = thailandTime.getFullYear();
+        const month = thailandTime.getMonth() + 1; // 1-indexed
+
+        const [rows] = await db.execute(`
+            SELECT COUNT(*) as count 
+            FROM TREATMENT1 
+            WHERE HNNO = ? 
+            AND UCS_CARD = 'Y'
+            AND YEAR(RDATE) = ? 
+            AND MONTH(RDATE) = ?
+        `, [hn, year, month]);
+
+        const usageCount = rows[0]?.count || 0;
+        const remainingUsage = Math.max(0, MAX_UCS_VISITS - usageCount);
+        const isExceeded = usageCount >= MAX_UCS_VISITS;
+
+        res.json({
+            success: true,
+            data: {
+                usageCount,
+                maxUsage: MAX_UCS_VISITS,
+                remainingUsage,
+                isExceeded,
+                year,
+                month
+            }
+        });
+
+    } catch (error) {
+        console.error('Error checking UCS usage:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการตรวจสอบสิทธิ์บัตรทอง',
+            error: error.message
+        });
+    }
+});
+
 // GET treatments by patient HN
 router.get('/patient/:hn', async (req, res) => {
     try {
