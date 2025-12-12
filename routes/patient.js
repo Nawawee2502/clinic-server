@@ -570,13 +570,12 @@ router.put('/:hn', async (req, res) => {
             TREATMENT_CARD, SOCIAL_CARD, UCS_CARD, ID_TYPE || 'IDCARD', hn
         ]);
 
+        // Note: result.affectedRows might be 0 if the data hasn't changed. 
+        // Since we already verified the patient exists (lines 523-534), we can treat this as success.
+
         if (result.affectedRows === 0) {
-            await connection.rollback();
-            connection.release();
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบข้อมูลผู้ป่วยที่ต้องการแก้ไข'
-            });
+            console.log('Update successful but no data changed for HN:', hn);
+            // Proceed to commit and return success
         }
 
         await connection.commit();
