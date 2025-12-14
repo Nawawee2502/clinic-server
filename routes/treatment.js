@@ -248,19 +248,23 @@ router.get('/', async (req, res) => {
 router.get('/ucs/pending', async (req, res) => {
     try {
         const db = await require('../config/db');
-        const { page = 1, limit = 50 } = req.query;
+        const { page = 1, limit = 50, date } = req.query;
 
         const limitInt = parseInt(limit);
         const pageInt = parseInt(page);
         const offset = (pageInt - 1) * limitInt;
 
+        // ✅ ใช้ date จาก query string หรือใช้วันนี้ถ้าไม่ระบุ
+        const filterDate = date || formatDateForDB(getThailandTime());
+
         // เงื่อนไข: สิทธิ์บัตรทอง (UCS_CARD='Y') และสถานะยังไม่ยืนยัน (UCS_STATUS != 'paid')
-        // หรืออาจจะเช็ค UCS_STATUS IS NULL หรือ = 'unpaid' ตาม business logic
+        // และเป็นวันที่ที่เลือก (RDATE = วันที่ที่เลือก)
         // ✅ ต้อง JOIN กับ patient1 เพื่อดึง UCS_CARD
         const whereClause = `
             WHERE p.UCS_CARD = 'Y' 
             AND (t.UCS_STATUS IS NULL OR t.UCS_STATUS != 'paid')
             AND t.STATUS1 = 'ปิดการรักษา'
+            AND DATE(t.RDATE) = ?
         `;
 
         const [rows] = await db.execute(`
@@ -274,14 +278,14 @@ router.get('/ucs/pending', async (req, res) => {
             ${whereClause}
             ORDER BY t.RDATE DESC, t.VNO DESC
             LIMIT ? OFFSET ?
-        `, [limitInt, offset]);
+        `, [filterDate, limitInt, offset]);
 
         const [countResult] = await db.execute(`
             SELECT COUNT(*) as total 
             FROM TREATMENT1 t
             LEFT JOIN patient1 p ON t.HNNO = p.HNCODE
             ${whereClause}
-        `, []);
+        `, [filterDate]);
 
         res.json({
             success: true,
