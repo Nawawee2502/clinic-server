@@ -244,6 +244,100 @@ router.get('/', async (req, res) => {
     }
 });
 
+// ✅ GET Pending Gold Card Treatments (ต้องอยู่ก่อน route /:vno)
+router.get('/ucs/pending', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { page = 1, limit = 50 } = req.query;
+
+        const limitInt = parseInt(limit);
+        const pageInt = parseInt(page);
+        const offset = (pageInt - 1) * limitInt;
+
+        // เงื่อนไข: สิทธิ์บัตรทอง (UCS_CARD='Y') และสถานะยังไม่ยืนยัน (UCS_STATUS != 'paid')
+        // หรืออาจจะเช็ค UCS_STATUS IS NULL หรือ = 'unpaid' ตาม business logic
+        // ✅ ต้อง JOIN กับ patient1 เพื่อดึง UCS_CARD
+        const whereClause = `
+            WHERE p.UCS_CARD = 'Y' 
+            AND (t.UCS_STATUS IS NULL OR t.UCS_STATUS != 'paid')
+            AND t.STATUS1 = 'ปิดการรักษา'
+        `;
+
+        const [rows] = await db.execute(`
+            SELECT 
+                t.VNO, t.HNNO, t.RDATE, t.TRDATE,
+                t.TOTAL_AMOUNT, t.DISCOUNT_AMOUNT, t.NET_AMOUNT,
+                t.RECEIVED_AMOUNT, t.UCS_STATUS,
+                p.PRENAME, p.NAME1, p.SURNAME, p.UCS_CARD
+            FROM TREATMENT1 t
+            LEFT JOIN patient1 p ON t.HNNO = p.HNCODE
+            ${whereClause}
+            ORDER BY t.RDATE DESC, t.VNO DESC
+            LIMIT ? OFFSET ?
+        `, [limitInt, offset]);
+
+        const [countResult] = await db.execute(`
+            SELECT COUNT(*) as total 
+            FROM TREATMENT1 t
+            LEFT JOIN patient1 p ON t.HNNO = p.HNCODE
+            ${whereClause}
+        `, []);
+
+        res.json({
+            success: true,
+            data: rows,
+            pagination: {
+                page: pageInt,
+                limit: limitInt,
+                total: countResult[0].total,
+                totalPages: Math.ceil(countResult[0].total / limitInt)
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching pending UCS treatments:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลยืนยันบัตรทอง',
+            error: error.message
+        });
+    }
+});
+
+// ✅ PUT Confirm Gold Card Payment (ต้องอยู่ก่อน route /:vno)
+router.put('/ucs/confirm/:vno', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { vno } = req.params;
+        const { amount } = req.body; // จำนวนเงินที่บันทึก (ถ้ามี)
+
+        const [result] = await db.execute(`
+            UPDATE TREATMENT1 
+            SET UCS_STATUS = 'paid', 
+                RECEIVED_AMOUNT = ?  -- อาจจะอัปเดตยอดรับเงินด้วยตาม requirement
+            WHERE VNO = ?
+        `, [amount || 0, vno]);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'ไม่พบข้อมูลการรักษา'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'ยืนยันการรับเงินจาก สปสช. สำเร็จ'
+        });
+    } catch (error) {
+        console.error('Error confirming UCS payment:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการยืนยันรายการ',
+            error: error.message
+        });
+    }
+});
+
 // GET treatment by VNO with full details
 router.get('/:vno', async (req, res) => {
     try {
@@ -1688,99 +1782,6 @@ router.delete('/:vno', async (req, res) => {
         if (connection) {
             connection.release();
         }
-    }
-});
-
-// ... existing code ...
-
-// ✅ GET Pending Gold Card Treatments
-router.get('/ucs/pending', async (req, res) => {
-    try {
-        const db = await require('../config/db');
-        const { page = 1, limit = 50 } = req.query;
-
-        const limitInt = parseInt(limit);
-        const pageInt = parseInt(page);
-        const offset = (pageInt - 1) * limitInt;
-
-        // เงื่อนไข: สิทธิ์บัตรทอง (UCS_CARD='Y') และสถานะยังไม่ยืนยัน (UCS_STATUS != 'paid')
-        // หรืออาจจะเช็ค UCS_STATUS IS NULL หรือ = 'unpaid' ตาม business logic
-        const whereClause = `
-            WHERE t.UCS_CARD = 'Y' 
-            AND (t.UCS_STATUS IS NULL OR t.UCS_STATUS != 'paid')
-        `;
-
-        const [rows] = await db.execute(`
-            SELECT 
-                t.VNO, t.HNNO, t.RDATE, t.TRDATE,
-                t.TOTAL_AMOUNT, t.DISCOUNT_AMOUNT, t.NET_AMOUNT,
-                t.RECEIVED_AMOUNT, t.UCS_STATUS,
-                p.PRENAME, p.NAME1, p.SURNAME
-            FROM TREATMENT1 t
-            LEFT JOIN patient1 p ON t.HNNO = p.HNCODE
-            ${whereClause}
-            ORDER BY t.RDATE DESC, t.VNO DESC
-            LIMIT ? OFFSET ?
-        `, [limitInt, offset]);
-
-        const [countResult] = await db.execute(`
-            SELECT COUNT(*) as total 
-            FROM TREATMENT1 t 
-            ${whereClause}
-        `, []);
-
-        res.json({
-            success: true,
-            data: rows,
-            pagination: {
-                page: pageInt,
-                limit: limitInt,
-                total: countResult[0].total,
-                totalPages: Math.ceil(countResult[0].total / limitInt)
-            }
-        });
-    } catch (error) {
-        console.error('Error fetching pending UCS treatments:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลยืนยันบัตรทอง',
-            error: error.message
-        });
-    }
-});
-
-// ✅ PUT Confirm Gold Card Payment
-router.put('/ucs/confirm/:vno', async (req, res) => {
-    try {
-        const db = await require('../config/db');
-        const { vno } = req.params;
-        const { amount } = req.body; // จำนวนเงินที่บันทึก (ถ้ามี)
-
-        const [result] = await db.execute(`
-            UPDATE TREATMENT1 
-            SET UCS_STATUS = 'paid', 
-                RECEIVED_AMOUNT = ?  -- อาจจะอัปเดตยอดรับเงินด้วยตาม requirement
-            WHERE VNO = ?
-        `, [amount || 0, vno]);
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบข้อมูลการรักษา'
-            });
-        }
-
-        res.json({
-            success: true,
-            message: 'ยืนยันการรับเงินจาก สปสช. สำเร็จ'
-        });
-    } catch (error) {
-        console.error('Error confirming UCS payment:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการยืนยันรายการ',
-            error: error.message
-        });
     }
 });
 
