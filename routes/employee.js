@@ -123,7 +123,7 @@ router.get('/search/:term', async (req, res) => {
 router.post('/', async (req, res) => {
     try {
         const db = await require('../config/db');
-        const { EMP_CODE, EMP_NAME, EMP_TYPE } = req.body;
+        const { EMP_CODE, EMP_NAME, EMP_TYPE, LICENSE_NO } = req.body;
 
         if (!EMP_CODE || !EMP_NAME) {
             return res.status(400).json({
@@ -133,14 +133,14 @@ router.post('/', async (req, res) => {
         }
 
         const [result] = await db.execute(
-            'INSERT INTO EMPLOYEE1 (EMP_CODE, EMP_NAME, EMP_TYPE) VALUES (?, ?, ?)',
-            [EMP_CODE, EMP_NAME, EMP_TYPE]
+            'INSERT INTO EMPLOYEE1 (EMP_CODE, EMP_NAME, EMP_TYPE, LICENSE_NO) VALUES (?, ?, ?, ?)',
+            [EMP_CODE, EMP_NAME, EMP_TYPE || null, LICENSE_NO || null]
         );
 
         res.status(201).json({
             success: true,
             message: 'เพิ่มข้อมูลพนักงานสำเร็จ',
-            data: { EMP_CODE, EMP_NAME, EMP_TYPE }
+            data: { EMP_CODE, EMP_NAME, EMP_TYPE, LICENSE_NO: LICENSE_NO || null }
         });
     } catch (error) {
         console.error('Error creating employee:', error);
@@ -164,11 +164,11 @@ router.put('/:code', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { code } = req.params;
-        const { EMP_NAME, EMP_TYPE } = req.body;
+        const { EMP_NAME, EMP_TYPE, LICENSE_NO } = req.body;
 
         const [result] = await db.execute(
-            'UPDATE EMPLOYEE1 SET EMP_NAME = ?, EMP_TYPE = ? WHERE EMP_CODE = ?',
-            [EMP_NAME, EMP_TYPE, code]
+            'UPDATE EMPLOYEE1 SET EMP_NAME = ?, EMP_TYPE = ?, LICENSE_NO = ? WHERE EMP_CODE = ?',
+            [EMP_NAME, EMP_TYPE || null, LICENSE_NO || null, code]
         );
 
         if (result.affectedRows === 0) {
@@ -181,7 +181,7 @@ router.put('/:code', async (req, res) => {
         res.json({
             success: true,
             message: 'แก้ไขข้อมูลพนักงานสำเร็จ',
-            data: { EMP_CODE: code, EMP_NAME, EMP_TYPE }
+            data: { EMP_CODE: code, EMP_NAME, EMP_TYPE, LICENSE_NO: LICENSE_NO || null }
         });
     } catch (error) {
         console.error('Error updating employee:', error);
