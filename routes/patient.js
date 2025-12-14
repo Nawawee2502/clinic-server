@@ -224,7 +224,20 @@ router.get('/search/:term', async (req, res) => {
             searchParams.push(`%${searchWords[searchWords.length - 1]}%`);
         }
 
-        // ดึงข้อมูลครบเหมือน GET by HN
+        // Create full count query to calculate total pages
+        const [countResult] = await connection.query(`
+            SELECT COUNT(*) as total 
+            FROM patient1 p 
+            WHERE ${searchConditions.join(' OR ')}
+        `, searchParams);
+        const total = countResult[0].total;
+
+        // Pagination parameters
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(100, Math.max(10, parseInt(req.query.limit) || 50));
+        const offset = (page - 1) * limit;
+
+        // ดึงข้อมูลครบเหมือน GET by HN พร้อม Pagination
         const [rows] = await connection.query(`
       SELECT 
         p.*,
@@ -243,13 +256,18 @@ router.get('/search/:term', async (req, res) => {
       LEFT JOIN tumbol card_tumb ON p.CARD_TUMBOL_CODE = card_tumb.TUMBOL_CODE
       WHERE ${searchConditions.join(' OR ')}
       ORDER BY p.HNCODE
-      LIMIT 100
-    `, searchParams);
+      LIMIT ? OFFSET ?
+    `, [...searchParams, limit, offset]);
 
         res.json({
             success: true,
             data: rows,
-            count: rows.length,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit)
+            },
             searchTerm: term
         });
     } catch (error) {
