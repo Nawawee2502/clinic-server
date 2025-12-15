@@ -115,3 +115,4 @@ SHOW CREATE TABLE TREATMENT1_DIAGNOSIS;
 SELECT '=== Done! FK/PK removed ===' as result;
 
 
+

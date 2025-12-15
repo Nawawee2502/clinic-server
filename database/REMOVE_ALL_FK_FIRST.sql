@@ -88,3 +88,4 @@ SHOW CREATE TABLE TREATMENT1;
 SELECT '=== Done! All FK removed, Primary Key removed ===' as result;
 
 
+

@@ -97,3 +97,4 @@ WHERE TABLE_SCHEMA = 'goodapp_clinic'
 SELECT '=== Done! FK/PK removed ===' as result;
 
 
+

@@ -574,6 +574,39 @@ router.get('/check-ucs-usage/:hn', async (req, res) => {
     }
 });
 
+// ✅ GET check if VNO exists (for duplicate prevention)
+router.get('/check-vno/:vno', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { vno } = req.params;
+
+        if (!vno || !vno.startsWith('VN')) {
+            return res.status(400).json({
+                success: false,
+                message: 'รูปแบบ VNO ไม่ถูกต้อง'
+            });
+        }
+
+        const [rows] = await db.execute(
+            'SELECT VNO, HNNO, RDATE, STATUS1 FROM TREATMENT1 WHERE VNO = ?',
+            [vno]
+        );
+
+        res.json({
+            success: true,
+            exists: rows.length > 0,
+            data: rows.length > 0 ? rows[0] : null
+        });
+    } catch (error) {
+        console.error('Error checking VNO:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการตรวจสอบ VNO',
+            error: error.message
+        });
+    }
+});
+
 // GET treatments by patient HN
 router.get('/patient/:hn', async (req, res) => {
     try {
@@ -689,17 +722,56 @@ router.post('/', async (req, res) => {
         const month = String(thailandTime.getMonth() + 1).padStart(2, '0');
         const day = String(thailandTime.getDate()).padStart(2, '0');
 
-        // ✅ ใช้เวลาไทยแทน CURDATE()
-        const [vnCount] = await connection.execute(`
-            SELECT COUNT(*) + 1 as next_number
-            FROM TREATMENT1 
-            WHERE VNO LIKE ? AND DATE(SYSTEM_DATE) = ?
-        `, [`VN${buddhistYear}${month}${day}%`, thailandDate]);
+        // ✅ สร้าง VNO แบบปลอดภัย - ป้องกัน VN ซ้ำเมื่อมีหลาย requests พร้อมกัน
+        let VNO = null;
+        let maxRetries = 10;
+        let retryCount = 0;
+        
+        while (!VNO && retryCount < maxRetries) {
+            try {
+                // ✅ ใช้ MAX() + FOR UPDATE เพื่อ lock และหาเลขที่มากที่สุด
+                const vnPattern = `VN${buddhistYear}${month}${day}%`;
+                const [vnMaxResult] = await connection.execute(`
+                    SELECT COALESCE(MAX(CAST(SUBSTRING(VNO, 9, 3) AS UNSIGNED)), 0) as max_number
+                    FROM TREATMENT1 
+                    WHERE VNO LIKE ? AND DATE(SYSTEM_DATE) = ?
+                    FOR UPDATE
+                `, [vnPattern, thailandDate]);
 
-        const runningNumber = vnCount[0].next_number.toString().padStart(3, '0');
-        const VNO = `VN${buddhistYear}${month}${day}${runningNumber}`;
+                const maxNumber = vnMaxResult[0]?.max_number || 0;
+                const nextNumber = maxNumber + 1;
+                const runningNumber = nextNumber.toString().padStart(3, '0');
+                VNO = `VN${buddhistYear}${month}${day}${runningNumber}`;
 
-        console.log(`🔢 Generated VNO: ${VNO} (Running: ${runningNumber})`);
+                // ✅ เช็คว่า VNO นี้มีอยู่แล้วหรือไม่ (ป้องกัน race condition)
+                const [existingVNO] = await connection.execute(`
+                    SELECT VNO FROM TREATMENT1 WHERE VNO = ? FOR UPDATE
+                `, [VNO]);
+
+                if (existingVNO.length > 0) {
+                    // ถ้ามีแล้ว ให้ retry
+                    console.log(`⚠️ VNO ${VNO} already exists, retrying... (attempt ${retryCount + 1})`);
+                    VNO = null;
+                    retryCount++;
+                    await new Promise(resolve => setTimeout(resolve, 50)); // รอ 50ms ก่อน retry
+                    continue;
+                }
+
+                console.log(`🔢 Generated VNO: ${VNO} (Running: ${runningNumber}, Max: ${maxNumber})`);
+                break; // สำเร็จแล้ว ออกจาก loop
+            } catch (error) {
+                console.error(`❌ Error generating VNO (attempt ${retryCount + 1}):`, error);
+                retryCount++;
+                if (retryCount >= maxRetries) {
+                    throw new Error('ไม่สามารถสร้าง VNO ได้ เนื่องจากเกิดข้อผิดพลาดในการสร้างเลขรันนิ่ง');
+                }
+                await new Promise(resolve => setTimeout(resolve, 50)); // รอ 50ms ก่อน retry
+            }
+        }
+
+        if (!VNO) {
+            throw new Error('ไม่สามารถสร้าง VNO ได้ หลังจากลองหลายครั้ง');
+        }
 
         // ดึง SOCIAL_CARD และ UCS_CARD จาก DAILY_QUEUE
         let socialCard = null;
