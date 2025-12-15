@@ -668,7 +668,7 @@ router.post('/', async (req, res) => {
     const db = await require('../config/db');
     let connection = null;
 
-    const toNull = (value) => value === undefined ? null : value;
+    const toNull = (value) => (value === undefined || value === '') ? null : value;
 
     // Helper function to safely parse numeric values (including 0)
     const parseNumeric = (value) => {
