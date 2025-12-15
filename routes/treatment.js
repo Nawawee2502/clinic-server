@@ -983,6 +983,12 @@ router.post('/', async (req, res) => {
 
         console.error('Error creating treatment:', error);
 
+        try {
+            const fs = require('fs');
+            const logMsg = `\n[${new Date().toISOString()}] Error in POST /treatments: ${error.message}\nCode: ${error.code}\nStack: ${error.stack}\n`;
+            fs.appendFileSync('server_error.log', logMsg);
+        } catch (e) { console.error('Log error', e); }
+
         if (error.code === 'ER_DUP_ENTRY') {
             res.status(409).json({
                 success: false,
