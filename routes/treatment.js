@@ -726,7 +726,7 @@ router.post('/', async (req, res) => {
         let VNO = null;
         let maxRetries = 10;
         let retryCount = 0;
-        
+
         while (!VNO && retryCount < maxRetries) {
             try {
                 // ✅ ใช้ MAX() + FOR UPDATE เพื่อ lock และหาเลขที่มากที่สุด
@@ -734,9 +734,9 @@ router.post('/', async (req, res) => {
                 const [vnMaxResult] = await connection.execute(`
                     SELECT COALESCE(MAX(CAST(SUBSTRING(VNO, 9, 3) AS UNSIGNED)), 0) as max_number
                     FROM TREATMENT1 
-                    WHERE VNO LIKE ? AND DATE(SYSTEM_DATE) = ?
+                    WHERE VNO LIKE ?
                     FOR UPDATE
-                `, [vnPattern, thailandDate]);
+                `, [vnPattern]);
 
                 const maxNumber = vnMaxResult[0]?.max_number || 0;
                 const nextNumber = maxNumber + 1;
