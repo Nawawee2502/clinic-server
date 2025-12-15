@@ -16,7 +16,7 @@ function getThailandTime() {
         second: '2-digit',
         hour12: false
     }).formatToParts(now);
-    
+
     // ✅ สร้าง Date object จากเวลาไทย
     const year = parseInt(thailandTimeStr.find(p => p.type === 'year').value);
     const month = parseInt(thailandTimeStr.find(p => p.type === 'month').value) - 1; // month is 0-indexed
@@ -24,7 +24,7 @@ function getThailandTime() {
     const hour = parseInt(thailandTimeStr.find(p => p.type === 'hour').value);
     const minute = parseInt(thailandTimeStr.find(p => p.type === 'minute').value);
     const second = parseInt(thailandTimeStr.find(p => p.type === 'second').value);
-    
+
     // ✅ สร้าง Date object โดยใช้เวลาไทย (แต่ต้องระวังว่า date object จะยังเป็น UTC internally)
     // ใช้วิธีอื่น: สร้าง string แล้วแปลงกลับเป็น date
     const thailandDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`;
@@ -40,7 +40,7 @@ function formatDateForDB(date) {
         month: '2-digit',
         day: '2-digit'
     }).format(date);
-    
+
     return dateStr; // ✅ ได้รูปแบบ YYYY-MM-DD จากเวลาไทย
 }
 
@@ -54,7 +54,7 @@ function formatTimeForDB(date) {
         second: '2-digit',
         hour12: false
     }).format(date);
-    
+
     return timeStr; // ✅ ได้รูปแบบ HH:MM:SS จากเวลาไทย
 }
 
@@ -67,10 +67,10 @@ function generateQueueId(queueNumber, date = getThailandTime()) {
         month: '2-digit',
         day: '2-digit'
     }).format(date);
-    
+
     // ✅ ได้รูปแบบ YYYY-MM-DD จากเวลาไทย แล้วแปลงเป็น YYYYMMDD
     const dateStr = thailandDateStr.replace(/-/g, '');
-    
+
     return `Q${dateStr}${String(queueNumber).padStart(3, '0')}`;
 }
 
@@ -317,7 +317,7 @@ router.post('/create', async (req, res) => {
 
         // ✅ ตรวจสอบว่าผู้ป่วยนี้มีอยู่ในคิวที่ยังไม่ปิดแล้วหรือไม่
         await connection.beginTransaction();
-        
+
         const [existingQueueCheck] = await connection.execute(`
             SELECT dq.QUEUE_ID, dq.STATUS, t.STATUS1 as TREATMENT_STATUS
             FROM DAILY_QUEUE dq
@@ -331,7 +331,9 @@ router.post('/create', async (req, res) => {
             // ตรวจสอบสถานะของคิวที่มีอยู่
             const activeQueue = existingQueueCheck.find(q => {
                 const status = q.STATUS || q.TREATMENT_STATUS || '';
-                const blockedStatuses = ['รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน', 'ชำระเงินแล้ว'];
+                // ✅ อนุญาตให้ลงทะเบียนใหม่ได้ถ้าสถานะเป็น 'เสร็จแล้ว', 'ชำระเงินแล้ว' หรือ 'ยกเลิกคิว'
+                // บล็อกเฉพาะสถานะที่กำลังดำเนินการอยู่
+                const blockedStatuses = ['รอตรวจ', 'กำลังตรวจ', 'ทำงานอยู่', 'รอชำระเงิน'];
                 return blockedStatuses.includes(status);
             });
 
@@ -556,22 +558,9 @@ router.post('/checkin', async (req, res) => {
             WHERE APPOINTMENT_ID = ?
         `, [APPOINTMENT_ID]);
 
-        // ✅ สร้าง VN ใหม่ตามวันที่เช็คอินจริง (ไม่ใช่ VN จากวันที่นัด)
-        // สร้าง VN ก่อน commit เพื่อให้อยู่ใน transaction เดียวกัน
-        const thailandDate = formatDateForDB(thailandTime);
-        const buddhistYear = (thailandTime.getFullYear() + 543).toString().slice(-2);
-        const month = String(thailandTime.getMonth() + 1).padStart(2, '0');
-        const day = String(thailandTime.getDate()).padStart(2, '0');
-        
-        // หาเลขรันนิ่งสำหรับวันที่เช็คอิน (ไม่ใช่วันที่นัด)
-        const [vnCount] = await connection.execute(`
-            SELECT COUNT(*) + 1 as next_number
-            FROM TREATMENT1 
-            WHERE VNO LIKE ? AND DATE(SYSTEM_DATE) = ?
-        `, [`VN${buddhistYear}${month}${day}%`, thailandDate]);
-        
-        const runningNumber = vnCount[0].next_number.toString().padStart(3, '0');
-        const newVNO = `VN${buddhistYear}${month}${day}${runningNumber}`;
+        // ✅ ไม่สร้าง VN ในขั้นตอน Check-in เพื่อป้องกัน VN ซ้ำและปัญหา Race Condition
+        // VN จะถูกสร้างเมื่อแพทย์เริ่มตรวจ/บันทึกผลการรักษา (POST /treatments) เท่านั้น
+        const newVNO = null;
 
         await connection.commit();
 
@@ -580,7 +569,7 @@ router.post('/checkin', async (req, res) => {
             message: 'เช็คอินสำเร็จ',
             data: {
                 QUEUE_ID: queueId,
-                VNO: newVNO, // ✅ ใช้ VN ใหม่ตามวันที่เช็คอินจริง
+                VNO: newVNO, // ส่งค่า null กลับไป (Frontend ควรแสดงเป็น "รอออกเลข" หรือซ่อนไว้)
                 QUEUE_NUMBER: nextQueueNumber,
                 HNCODE: appointment.HNCODE,
                 PATIENT_NAME: `${appointment.PRENAME || ''}${appointment.NAME1} ${appointment.SURNAME || ''}`.trim(),
@@ -841,7 +830,7 @@ router.delete('/:queueId', async (req, res) => {
         // ลบข้อมูลที่อ้างอิงแต่ละ VNO แบบวนลูป (เลี่ยงปัญหา subquery)
         for (const row of treatments) {
             const vno = row.VNO;
-            
+
             // ✅ ตรวจสอบว่า VNO มีค่าก่อนลบ
             if (!vno || (typeof vno === 'string' && vno.trim() === '')) {
                 console.warn(`⚠️ Skipping empty VNO for queue ${queueId}`);
