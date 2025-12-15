@@ -693,12 +693,19 @@ router.post('/', async (req, res) => {
             STATUS1 = 'ทำงานอยู่',
             QUEUE_ID,
             diagnosis,
-            drugs = [],
-            procedures = [],
-            labTests = [],
-            radioTests = [],
+
+            drugs: rawDrugs, // รับค่ามาก่อน (อาจเป็น null)
+            procedures: rawProcedures, // รับค่ามาก่อน (อาจเป็น null)
+            labTests: rawLabTests,
+            radioTests: rawRadioTests,
             INVESTIGATION_NOTES
         } = req.body;
+
+        // ✅ แปลงให้เป็น Array เสมอ (ป้องกัน null/undefined)
+        const drugs = Array.isArray(rawDrugs) ? rawDrugs : [];
+        const procedures = Array.isArray(rawProcedures) ? rawProcedures : [];
+        const labTests = Array.isArray(rawLabTests) ? rawLabTests : [];
+        const radioTests = Array.isArray(rawRadioTests) ? rawRadioTests : [];
 
         console.log('📥 POST /treatments - Received data:', {
             HNNO,
@@ -985,8 +992,10 @@ router.post('/', async (req, res) => {
 
         try {
             const fs = require('fs');
-            const logMsg = `\n[${new Date().toISOString()}] Error in POST /treatments: ${error.message}\nCode: ${error.code}\nStack: ${error.stack}\n`;
-            fs.appendFileSync('server_error.log', logMsg);
+            const path = require('path');
+            const logPath = path.join(__dirname, '../server_error.log');
+            const logMsg = `\n[${new Date().toISOString()}] Error in POST /treatments: ${error.message}\nCode: ${error.code}\nStack: ${error.stack}\nBody: ${JSON.stringify(req.body)}\n`;
+            fs.appendFileSync(logPath, logMsg);
         } catch (e) { console.error('Log error', e); }
 
         if (error.code === 'ER_DUP_ENTRY') {
