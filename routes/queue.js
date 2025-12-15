@@ -270,7 +270,7 @@ router.post('/create', async (req, res) => {
     let connection = null;
 
     try {
-        const { HNCODE, CHIEF_COMPLAINT, CREATED_BY } = req.body;
+        const { HNCODE, CHIEF_COMPLAINT, CREATED_BY, SOCIAL_CARD, UCS_CARD } = req.body;
 
         // Validate input
         if (!HNCODE || HNCODE.trim() === '') {
@@ -386,7 +386,19 @@ router.post('/create', async (req, res) => {
                 QUEUE_ID, HNCODE, QUEUE_DATE, QUEUE_NUMBER, QUEUE_TIME, 
                 STATUS, TYPE, CHIEF_COMPLAINT, SOCIAL_CARD, UCS_CARD, CREATED_AT
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, insertParams);
+        `, [
+            queueId,
+            HNCODE.trim(),
+            queueDate,
+            nextQueueNumber,
+            queueTimeStr,
+            'รอตรวจ',
+            'walk-in',
+            (CHIEF_COMPLAINT || '').trim(),
+            SOCIAL_CARD || patient.SOCIAL_CARD || 'N',
+            UCS_CARD || patient.UCS_CARD || 'N',
+            thailandTime.toISOString()
+        ]);
 
         console.log('✅ Queue record inserted successfully');
 
@@ -408,8 +420,8 @@ router.post('/create', async (req, res) => {
                 STATUS: 'รอตรวจ',
                 QUEUE_DATE: queueDate,
                 QUEUE_TIME: queueTimeStr,
-                SOCIAL_CARD: patient.SOCIAL_CARD || 'N',
-                UCS_CARD: patient.UCS_CARD || 'N',
+                SOCIAL_CARD: SOCIAL_CARD || patient.SOCIAL_CARD || 'N',
+                UCS_CARD: UCS_CARD || patient.UCS_CARD || 'N',
                 THAILAND_TIME: thailandTime.toISOString(),
                 SERVER_TIME: new Date().toISOString()
             }

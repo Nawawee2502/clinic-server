@@ -774,8 +774,8 @@ router.post('/', async (req, res) => {
         }
 
         // ดึง SOCIAL_CARD และ UCS_CARD จาก DAILY_QUEUE
-        let socialCard = null;
-        let ucsCard = null;
+        let socialCard = 'N';
+        let ucsCard = 'N';
 
         if (QUEUE_ID) {
             const [queueData] = await connection.execute(`
@@ -783,8 +783,8 @@ router.post('/', async (req, res) => {
             `, [QUEUE_ID]);
 
             if (queueData.length > 0) {
-                socialCard = queueData[0].SOCIAL_CARD;
-                ucsCard = queueData[0].UCS_CARD;
+                socialCard = queueData[0].SOCIAL_CARD || 'N';
+                ucsCard = queueData[0].UCS_CARD || 'N';
                 console.log(`📋 Retrieved from queue: SOCIAL_CARD=${socialCard}, UCS_CARD=${ucsCard}`);
             }
         }
