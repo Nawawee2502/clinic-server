@@ -1,0 +1,106 @@
+﻿VNO,HNNO,PATIENT_NAME,RDATE,SYMPTOM,TREATMENT_DETAIL,DXCODE,TOTAL_AMOUNT,PAYMENT_STATUS
+"VN681215001","HN680002","นายA AA","2025-12-15","รับบริการทั่วไป",,,"121.00","ชำระเงินแล้ว"
+"VN681215009","HN681298","นายสมชาย เลาวะ","2025-12-15","ชาตามมือเท้า","Chief Complaint: ปวด ชามือ 2 ข้าง
+
+Present Illness: ยกของหนัก ไม่ปวดวคอ หยยิบจับของไม่สะดวก เพราะชา
+normal hand function
+
+Physical Examination: PE: motor grade V, decrease sensation distal finger
+
+Plan: SS","paresthesia","0.00","รอชำระ"
+"VN681215005","HN681299","นายสุเมธ วรรณศรี","2025-12-15","ปวดเท้าข้างซ้าย","Chief Complaint: ปวดเท้าข้างซ้าย
+
+Present Illness: UD: gouty arthritis 
+
+ปวดนิ้วเท้าชีข้างซ้าย 1 day PTA  no fever, no hx of trauma
+
+Physical Examination: swelling and redness at 2nd MTP with trophy
+
+Plan: anti inflamed","acute gouty arthritis","0.00","รอชำระ"
+"VN681215007","HN681303","นางบุญศรี เปี้ยปะลาน","2025-12-15","ปวดหัวเข่าทั้ง2ข้าง","Chief Complaint: ปวดหัวเข่าทั้ง2ข้าง
+
+Present Illness: UD gouty arthritis ไม่เคยเจาะค่า gouty
+7 dPTA ปวดเข่าขวา > ซ้าย ไม่มีไข้ ไม่ชา ไม่อ่อนแรง No hx trauma , no claudication
+
+Physical Examination: Status - Outdoor independent without gait aids
+PE:
+Rt knee - No wound , Genu varus , mild Tender at medial joint line , Crepitus on motion , Patellar grinding and glyding tests - neg , ADT and PDT - Neg , McMurray tests - neg , Varus and Valgus stress tests - neg , ROM 120/0/0no limit ROM , Ballotment - neg , neurovascular - intact 
+Skin - no rash , no petechiae 
+NS - E4V5M6 , Motor V/V all , normal sensation , pupils 2 mmRTLBE , BBK - plantar flex , no stiff neck , no nystagmus , Tandemn and Romberg tests - ng , normal gait
+Dx1.Primary varus OA both knee Rt > Left knee
+Rx - advice
+
+Plan: SS","Primary OA both knee","0.00","รอชำระ"
+"VN681215008","HN681304","นางกาบ ทาเมืองแก้ว","2025-12-15","เท้าบวม 2 ข้าง 1 day PTA","Chief Complaint: ปวดหัวเข่า2ข้าง
+
+Present Illness: 1 week PTA ปวดเข่าสองข้าง ไม่มีไข้ ไม่ชา ไม่อ่อนแรง No hx trauma , no claudication
+
+Physical Examination: Status - Outdoor independent without gait aids
+PE:
+Both knees - No wound , Genu varus , mild Tender at medial joint line , Crepitus on motion , Patellar grinding and glyding tests - neg , ADT and PDT - Neg , McMurray tests - neg , Varus and Valgus stress tests - neg , ROM 120/0/0no limit ROM , Ballotment - neg , neurovascular - intact 
+Skin - no rash , no petechiae 
+NS - E4V5M6 , Motor V/V all , normal sensation , pupils 2 mmRTLBE , BBK - plantar flex , no stiff neck , no nystagmus , Tandemn and Romberg tests - ng , normal gait
+Dx1.Primary varus OA at both knees
+ RIght knee > left
+
+Plan: TA injection right knee, pain controlled","pedal edema","0.00","รอชำระ"
+"VN681215008","HN681309","นางประดี ตะจิริ","2025-12-15","เท้าบวม 2 ข้าง 1 day PTA","Chief Complaint: ปวดหัวเข่า2ข้าง
+
+Present Illness: 1 week PTA ปวดเข่าสองข้าง ไม่มีไข้ ไม่ชา ไม่อ่อนแรง No hx trauma , no claudication
+
+Physical Examination: Status - Outdoor independent without gait aids
+PE:
+Both knees - No wound , Genu varus , mild Tender at medial joint line , Crepitus on motion , Patellar grinding and glyding tests - neg , ADT and PDT - Neg , McMurray tests - neg , Varus and Valgus stress tests - neg , ROM 120/0/0no limit ROM , Ballotment - neg , neurovascular - intact 
+Skin - no rash , no petechiae 
+NS - E4V5M6 , Motor V/V all , normal sensation , pupils 2 mmRTLBE , BBK - plantar flex , no stiff neck , no nystagmus , Tandemn and Romberg tests - ng , normal gait
+Dx1.Primary varus OA at both knees
+ RIght knee > left
+
+Plan: TA injection right knee, pain controlled","pedal edema","0.00","รอชำระ"
+"VN681215009","HN681310","นางกิ่งกาญ มูลมาวัน","2025-12-15","ชาตามมือเท้า","Chief Complaint: ปวด ชามือ 2 ข้าง
+
+Present Illness: ยกของหนัก ไม่ปวดวคอ หยยิบจับของไม่สะดวก เพราะชา
+normal hand function
+
+Physical Examination: PE: motor grade V, decrease sensation distal finger
+
+Plan: SS","paresthesia","0.00","รอชำระ"
+"VN681215091","HN681311","นางเพ๊ญศรี อินต๊ะมัง","2025-12-15","ปวดเอวร้าวลงขาข้างขวา","Chief Complaint: ปวดเอวร้าวลงขาข้างขวา
+
+Present Illness: 1 month PTA ปวดเอวร้าวลงขาข้างขวา รักษารพ บ้านโฮ่ง
+4 day PTA ทำงาน ยกของ เดินเยอะ
+
+Physical Examination: NS - E4V5M6 , normal sensation , pupils 2 mmRTLBE , BBK - plantar flex , no stiff neck , no nystagmus , Tandemn and Romberg tests - ng , normal gait
+Not tender along spine , mild tender at Bilateral paravertebral muscles , STLR and CLRT - neg
+Motor				Rt		Lt
+Hip flex			V		V
+Knee  extend			 V		V
+Ankle dorsiflex		V		V
+EHL				V		V
+Ankle plantar flex		V		V
+
+Plan: SS","low back pain","0.00","รอชำระ"
+"VN681215911","HN681312","นางรำดวน บุญถนอม","2025-12-15","ปวดเอวปวดแขน","Chief Complaint: ปวดเอวปวดแขน
+
+Present Illness: 2 day PTA ปวดแขน ปวดหลัง ตอนยืนนานๆ
+
+Physical Examination: NS - E4V5M6 , normal sensation , pupils 2 mmRTLBE , BBK - plantar flex , no stiff neck , no nystagmus , Tandemn and Romberg tests - ng , normal gait
+Not tender along spine , mild tender at Bilateral paravertebral muscles , STLR and CLRT - neg
+ Taut band and Trp -Positive at Lt upper back , Reverse radial shoulder reflex - neg
+Motor				Rt		Lt
+Elbow flex			V		V
+Wrist extend			 V		V
+Elbow extend			V		V
+Finger flex			V		V
+Finger abduct			V		V
+
+Motor				Rt		Lt
+Hip flex			V		V
+Knee  extend			 V		V
+Ankle dorsiflex		V		V
+EHL				V		V
+Ankle plantar flex		V		V
+
+Plan: SS 
+advice ลดน้ำหนัก","spondylosis with right radiculopathy","0.00","รอชำระ"
+"VN6812159111","HN680006","นายAAAAA AAAAAA","2025-12-15","รับบริการทั่วไป",,,"0.00","รอชำระ"

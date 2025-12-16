@@ -745,7 +745,8 @@ router.post('/', async (req, res) => {
                     FOR UPDATE
                 `, [vnPattern]);
 
-                const maxNumber = vnMaxResult[0]?.max_number || 0;
+                // ✅ Fix: Ensure parsing to int to subtract string concatenation issue
+                const maxNumber = parseInt(vnMaxResult[0]?.max_number || 0, 10);
                 const nextNumber = maxNumber + 1;
                 const runningNumber = nextNumber.toString().padStart(3, '0');
                 VNO = `VN${buddhistYear}${month}${day}${runningNumber}`;
