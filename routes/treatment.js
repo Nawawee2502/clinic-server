@@ -1450,18 +1450,88 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // ✅ ตรวจสอบว่ามีข้อมูลที่จะบันทึกหรือไม่
-        const hasDataToSave = (drugsArray && drugsArray.length > 0) ||
-            (proceduresArray && proceduresArray.length > 0) ||
-            (labTests && Array.isArray(labTests) && labTests.length > 0) ||
-            (radioTests && Array.isArray(radioTests) && radioTests.length > 0);
+        (radioTests && Array.isArray(radioTests) && radioTests.length > 0);
+
+        // ✅ Calculate ACTUAL_PRICE (Backend Calculation)
+        console.log(`💰 [${vno}] Calculating ACTUAL_PRICE...`);
+        let calculatedActualPrice = 100; // Start with default Doctor Fee
+        if (req.body.TREATMENT_FEE) {
+            const requestedFee = parseFloat(req.body.TREATMENT_FEE);
+            // If user explicitly specifically sends a fee, use it (unless it's 0 for Gold Card, we might still want standard fee? 
+            // But usually standard DF is 100. Let's start with 100 base)
+            // Actually, if it's a Gold Card case where everything is 0, we want the REAL price.
+            // So we should enforce standard DF (100) if the requested fee is 0.
+            if (requestedFee > 0) {
+                calculatedActualPrice = requestedFee;
+            }
+        }
+
+        // Accumulate Drugs Price from Master Data (using the inserted drugs)
+        if (drugsArray && drugsArray.length > 0) {
+            for (const drug of drugsArray) {
+                const drugCode = toNull(drug.DRUG_CODE) || toNull(drug.drugCode) || toNull(drug.DRUGCODE);
+                const qty = parseNumeric(drug.QTY) || parseNumeric(drug.qty) || 1;
+
+                if (drugCode) {
+                    const [drugInfo] = await connection.execute('SELECT UNIT_PRICE FROM TABLE_DRUG WHERE DRUG_CODE = ?', [drugCode]);
+                    const unitPrice = drugInfo[0]?.UNIT_PRICE ? parseFloat(drugInfo[0].UNIT_PRICE) : 0;
+                    calculatedActualPrice += (unitPrice * qty);
+                }
+            }
+        }
+
+        // Accumulate Procedures Price from Master Data
+        if (proceduresArray && proceduresArray.length > 0) {
+            for (const proc of proceduresArray) {
+                const procCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE) || toNull(proc.procedureCode);
+                const qty = parseNumeric(proc.QTY) || parseNumeric(proc.qty) || 1;
+
+                if (procCode) {
+                    const [procInfo] = await connection.execute('SELECT UNIT_PRICE FROM TABLE_MEDICAL_PROCEDURES WHERE MEDICAL_PROCEDURE_CODE = ?', [procCode]);
+                    const unitPrice = procInfo[0]?.UNIT_PRICE ? parseFloat(procInfo[0].UNIT_PRICE) : 0;
+                    calculatedActualPrice += (unitPrice * qty);
+                }
+            }
+        }
+
+        // Accumulate Lab Price
+        if (labTests && Array.isArray(labTests)) {
+            for (const lab of labTests) {
+                if (lab.LABCODE) {
+                    const [labInfo] = await connection.execute('SELECT PRICE FROM TABLE_LAB WHERE LABCODE = ?', [lab.LABCODE]);
+                    // Standard Lab Price usually 100 if null? Let's use 100 as fallback based on GET logic
+                    const price = labInfo[0]?.PRICE ? parseFloat(labInfo[0].PRICE) : 100;
+                    calculatedActualPrice += price;
+                }
+            }
+        }
+
+        // Accumulate Radio Price
+        if (radioTests && Array.isArray(radioTests)) {
+            for (const radio of radioTests) {
+                if (radio.RLCODE) {
+                    const [radioInfo] = await connection.execute('SELECT PRICE FROM TABLE_RADIOLOGICAL WHERE RLCODE = ?', [radio.RLCODE]);
+                    // Standard Radio Price usually 200 if null? Let's use 200 as fallback
+                    const price = radioInfo[0]?.PRICE ? parseFloat(radioInfo[0].PRICE) : 200;
+                    calculatedActualPrice += price;
+                }
+            }
+        }
+
+        console.log(`💰 [${vno}] Final Calculated ACTUAL_PRICE: ${calculatedActualPrice}`);
+
+        // Update ACTUAL_PRICE in TREATMENT1
+        await connection.execute(`
+            UPDATE TREATMENT1 SET ACTUAL_PRICE = ? WHERE VNO = ?
+        `, [calculatedActualPrice, vno]);
 
         console.log(`📊 [${vno}] Summary before commit:`, {
             hasDataToSave,
             drugsCount: drugsArray?.length || 0,
             proceduresCount: proceduresArray?.length || 0,
             labTestsCount: Array.isArray(labTests) ? labTests.length : 0,
-            radioTestsCount: Array.isArray(radioTests) ? radioTests.length : 0
+            radioTestsCount: Array.isArray(radioTests) ? radioTests.length : 0,
+            calculatedActualPrice
         });
 
         // ✅ Commit transaction ก่อนส่ง response
