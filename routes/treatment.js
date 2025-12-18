@@ -1470,9 +1470,17 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // Accumulate Drugs Price from Master Data (using the inserted drugs)
-        if (drugsArray && drugsArray.length > 0) {
-            for (const drug of drugsArray) {
+        // 1. Calculate Drugs Price
+        let calcDrugs = [];
+        if (hasDrugsInRequest) {
+            calcDrugs = drugsArray;
+        } else {
+            const [dbDrugs] = await connection.execute('SELECT DRUG_CODE, QTY FROM TREATMENT1_DRUG WHERE VNO = ?', [vno]);
+            calcDrugs = dbDrugs;
+        }
+
+        if (calcDrugs && calcDrugs.length > 0) {
+            for (const drug of calcDrugs) {
                 const drugCode = toNull(drug.DRUG_CODE) || toNull(drug.drugCode) || toNull(drug.DRUGCODE);
                 const qty = parseNumeric(drug.QTY) || parseNumeric(drug.qty) || 1;
 
@@ -1484,9 +1492,17 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // Accumulate Procedures Price from Master Data
-        if (proceduresArray && proceduresArray.length > 0) {
-            for (const proc of proceduresArray) {
+        // 2. Calculate Procedures Price
+        let calcProcs = [];
+        if (hasProceduresInRequest) {
+            calcProcs = proceduresArray;
+        } else {
+            const [dbProcs] = await connection.execute('SELECT MEDICAL_PROCEDURE_CODE, QTY FROM TREATMENT1_MED_PROCEDURE WHERE VNO = ?', [vno]);
+            calcProcs = dbProcs;
+        }
+
+        if (calcProcs && calcProcs.length > 0) {
+            for (const proc of calcProcs) {
                 const procCode = toNull(proc.PROCEDURE_CODE) || toNull(proc.MEDICAL_PROCEDURE_CODE) || toNull(proc.procedureCode);
                 const qty = parseNumeric(proc.QTY) || parseNumeric(proc.qty) || 1;
 
@@ -1498,24 +1514,38 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        // Accumulate Lab Price
-        if (labTests && Array.isArray(labTests)) {
-            for (const lab of labTests) {
+        // 3. Calculate Lab Price
+        let calcLabs = [];
+        if (req.body.hasOwnProperty('labTests')) {
+            calcLabs = labTests || [];
+        } else {
+            const [dbLabs] = await connection.execute('SELECT LABCODE FROM TREATMENT1_LABORATORY WHERE VNO = ?', [vno]);
+            calcLabs = dbLabs;
+        }
+
+        if (calcLabs && Array.isArray(calcLabs)) {
+            for (const lab of calcLabs) {
                 if (lab.LABCODE) {
                     const [labInfo] = await connection.execute('SELECT PRICE FROM TABLE_LAB WHERE LABCODE = ?', [lab.LABCODE]);
-                    // Standard Lab Price usually 100 if null? Let's use 100 as fallback based on GET logic
                     const price = labInfo[0]?.PRICE ? parseFloat(labInfo[0].PRICE) : 100;
                     calculatedActualPrice += price;
                 }
             }
         }
 
-        // Accumulate Radio Price
-        if (radioTests && Array.isArray(radioTests)) {
-            for (const radio of radioTests) {
+        // 4. Calculate Radio Price
+        let calcRadios = [];
+        if (req.body.hasOwnProperty('radioTests')) {
+            calcRadios = radioTests || [];
+        } else {
+            const [dbRadios] = await connection.execute('SELECT RLCODE FROM TREATMENT1_RADIOLOGICAL WHERE VNO = ?', [vno]);
+            calcRadios = dbRadios;
+        }
+
+        if (calcRadios && Array.isArray(calcRadios)) {
+            for (const radio of calcRadios) {
                 if (radio.RLCODE) {
                     const [radioInfo] = await connection.execute('SELECT PRICE FROM TABLE_RADIOLOGICAL WHERE RLCODE = ?', [radio.RLCODE]);
-                    // Standard Radio Price usually 200 if null? Let's use 200 as fallback
                     const price = radioInfo[0]?.PRICE ? parseFloat(radioInfo[0].PRICE) : 200;
                     calculatedActualPrice += price;
                 }
