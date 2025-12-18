@@ -271,7 +271,7 @@ router.get('/ucs/pending', async (req, res) => {
             SELECT 
                 t.VNO, t.HNNO, t.RDATE, t.TRDATE,
                 t.TOTAL_AMOUNT, t.DISCOUNT_AMOUNT, t.NET_AMOUNT,
-                t.RECEIVED_AMOUNT, t.UCS_STATUS,
+                t.RECEIVED_AMOUNT, t.UCS_STATUS, t.ACTUAL_PRICE, t.CLAIM_ACTUAL_AMOUNT,
                 p.PRENAME, p.NAME1, p.SURNAME, p.UCS_CARD
             FROM TREATMENT1 t
             LEFT JOIN patient1 p ON t.HNNO = p.HNCODE
@@ -312,12 +312,12 @@ router.put('/ucs/confirm/:vno', async (req, res) => {
     try {
         const db = await require('../config/db');
         const { vno } = req.params;
-        const { amount } = req.body; // จำนวนเงินที่บันทึก (ถ้ามี)
+        const { amount } = req.body; // จำนวนเงินที่บันทึก (CLAIM_ACTUAL_AMOUNT)
 
         const [result] = await db.execute(`
             UPDATE TREATMENT1 
             SET UCS_STATUS = 'paid', 
-                RECEIVED_AMOUNT = ?  -- อาจจะอัปเดตยอดรับเงินด้วยตาม requirement
+                CLAIM_ACTUAL_AMOUNT = ?
             WHERE VNO = ?
         `, [amount || 0, vno]);
 
