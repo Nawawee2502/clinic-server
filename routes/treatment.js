@@ -698,7 +698,8 @@ router.post('/', async (req, res) => {
             procedures: rawProcedures, // รับค่ามาก่อน (อาจเป็น null)
             labTests: rawLabTests,
             radioTests: rawRadioTests,
-            INVESTIGATION_NOTES
+            INVESTIGATION_NOTES,
+            EXTERNAL_UCS_COUNT // ✅ รับค่าสถิติจากหน้าบัตร
         } = req.body;
 
         // ✅ แปลงให้เป็น Array เสมอ (ป้องกัน null/undefined)
@@ -803,8 +804,8 @@ router.post('/', async (req, res) => {
                 RR1, PR1, SPO2, SYMPTOM, DXCODE, ICD10CODE, TREATMENT1,
                 APPOINTMENT_DATE, APPOINTMENT_TDATE, EMP_CODE, EMP_CODE1,
                 SYSTEM_DATE, SYSTEM_TIME, STATUS1, QUEUE_ID, INVESTIGATION_NOTES,
-                SOCIAL_CARD, UCS_CARD
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                SOCIAL_CARD, UCS_CARD, EXTERNAL_UCS_COUNT
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
             VNO,
             toNull(HNNO),
@@ -820,7 +821,8 @@ router.post('/', async (req, res) => {
             toNull(STATUS1),
             toNull(QUEUE_ID), toNull(INVESTIGATION_NOTES),
             socialCard,
-            ucsCard
+            ucsCard,
+            parseNumeric(EXTERNAL_UCS_COUNT) || 0 // ✅ บันทึกค่า (default 0)
         ]);
 
         if (diagnosis && (diagnosis.CHIEF_COMPLAINT || diagnosis.PRESENT_ILL || diagnosis.PHYSICAL_EXAM || diagnosis.PLAN1)) {
