@@ -1450,7 +1450,11 @@ router.put('/:vno', async (req, res) => {
             }
         }
 
-        (radioTests && Array.isArray(radioTests) && radioTests.length > 0);
+        // ✅ ตรวจสอบว่ามีข้อมูลที่จะบันทึกหรือไม่
+        const hasDataToSave = (drugsArray && drugsArray.length > 0) ||
+            (proceduresArray && proceduresArray.length > 0) ||
+            (labTests && Array.isArray(labTests) && labTests.length > 0) ||
+            (radioTests && Array.isArray(radioTests) && radioTests.length > 0);
 
         // ✅ Calculate ACTUAL_PRICE (Backend Calculation)
         console.log(`💰 [${vno}] Calculating ACTUAL_PRICE...`);
