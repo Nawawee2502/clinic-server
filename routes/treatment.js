@@ -262,7 +262,6 @@ router.get('/ucs/pending', async (req, res) => {
         // ✅ ต้อง JOIN กับ patient1 เพื่อดึง UCS_CARD
         const whereClause = `
             WHERE p.UCS_CARD = 'Y' 
-            AND (t.UCS_STATUS IS NULL OR t.UCS_STATUS != 'paid')
             AND t.STATUS1 = 'ปิดการรักษา'
             AND DATE(t.RDATE) = ?
         `;
