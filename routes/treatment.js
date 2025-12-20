@@ -271,6 +271,7 @@ router.get('/ucs/pending', async (req, res) => {
                 t.VNO, t.HNNO, t.RDATE, t.TRDATE,
                 t.TOTAL_AMOUNT, t.DISCOUNT_AMOUNT, t.NET_AMOUNT,
                 t.RECEIVED_AMOUNT, t.UCS_STATUS, t.ACTUAL_PRICE, t.CLAIM_ACTUAL_AMOUNT,
+                t.EXTERNAL_UCS_COUNT,
                 p.PRENAME, p.NAME1, p.SURNAME, p.UCS_CARD
             FROM TREATMENT1 t
             LEFT JOIN patient1 p ON t.HNNO = p.HNCODE
