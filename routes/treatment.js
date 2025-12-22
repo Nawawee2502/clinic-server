@@ -196,6 +196,31 @@ router.get('/', async (req, res) => {
             params.push(payment_status);
         }
 
+        // ✅ Gold Card Payment Date Filters
+        if (req.query.ucs_payment_date_from) {
+            whereClause += ' AND DATE(t.UCS_PAYMENT_DATE) >= ?';
+            params.push(req.query.ucs_payment_date_from);
+        }
+        if (req.query.ucs_payment_date_to) {
+            whereClause += ' AND DATE(t.UCS_PAYMENT_DATE) <= ?';
+            params.push(req.query.ucs_payment_date_to);
+        }
+
+        // ✅ Rights Type Filter
+        if (req.query.rights_type) {
+            const rightsType = req.query.rights_type;
+            if (rightsType === 'gold_card') {
+                // Gold Card: UCS_CARD='Y' OR Payment Method='บัตรทอง'
+                whereClause += ' AND (t.UCS_CARD = "Y" OR t.PAYMENT_METHOD = "บัตรทอง")';
+            } else if (rightsType === 'social_security') {
+                // Social Security: SOCIAL_CARD='Y' OR Payment Method='ประกันสังคม'
+                whereClause += ' AND (t.SOCIAL_CARD = "Y" OR t.PAYMENT_METHOD = "ประกันสังคม")';
+            } else if (rightsType === 'cash') {
+                // Cash: Not Gold Card AND Not Social Security AND Not Gold/Social Payment
+                whereClause += ' AND (t.UCS_CARD = "N" AND t.SOCIAL_CARD = "N" AND t.PAYMENT_METHOD != "บัตรทอง" AND t.PAYMENT_METHOD != "ประกันสังคม")';
+            }
+        }
+
         const [rows] = await db.execute(`
             SELECT 
                 t.VNO, t.HNNO, t.RDATE, t.TRDATE, t.STATUS1,
@@ -205,6 +230,8 @@ router.get('/', async (req, res) => {
                 t.PAYMENT_METHOD, t.RECEIVED_AMOUNT, t.CHANGE_AMOUNT, t.CASHIER,
                 p.PRENAME, p.NAME1, p.SURNAME, p.AGE, p.SEX, p.TEL1,
                 p.SOCIAL_CARD, p.UCS_CARD,
+                t.SOCIAL_CARD as VISIT_SOCIAL_CARD, t.UCS_CARD as VISIT_UCS_CARD,
+                t.UCS_STATUS, t.UCS_PAYMENT_DATE, t.CLAIM_ACTUAL_AMOUNT,
                 e.EMP_NAME,
                 dx.DXNAME_THAI, dx.DXNAME_ENG,
                 icd.ICD10NAME_THAI
@@ -317,7 +344,8 @@ router.put('/ucs/confirm/:vno', async (req, res) => {
         const [result] = await db.execute(`
             UPDATE TREATMENT1 
             SET UCS_STATUS = 'paid', 
-                CLAIM_ACTUAL_AMOUNT = ?
+                CLAIM_ACTUAL_AMOUNT = ?,
+                UCS_PAYMENT_DATE = NOW()
             WHERE VNO = ?
         `, [amount || 0, vno]);
 
