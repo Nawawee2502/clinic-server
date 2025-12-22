@@ -176,11 +176,11 @@ router.get('/', async (req, res) => {
             params.push(hnno);
         }
         if (date_from) {
-            whereClause += ' AND t.RDATE >= ?';
+            whereClause += ' AND DATE(t.RDATE) >= ?';
             params.push(date_from);
         }
         if (date_to) {
-            whereClause += ' AND t.RDATE <= ?';
+            whereClause += ' AND DATE(t.RDATE) <= ?';
             params.push(date_to);
         }
         if (dx_code) {
