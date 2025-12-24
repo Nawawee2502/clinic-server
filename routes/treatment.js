@@ -1209,19 +1209,19 @@ router.put('/:vno', async (req, res) => {
 
         console.log(`✅ [${vno}] TREATMENT1 updated, affectedRows: ${updateResult.affectedRows}`);
         if (updateResult.affectedRows === 0) {
-            console.warn(`⚠️ [${vno}] TREATMENT1 update affected 0 rows (may be normal if no fields changed)`);
+            console.warn(`⚠️[${vno}] TREATMENT1 update affected 0 rows(may be normal if no fields changed)`);
         }
 
         if (diagnosis && typeof diagnosis === 'object') {
             await connection.execute(`
-                INSERT INTO TREATMENT1_DIAGNOSIS (VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO TREATMENT1_DIAGNOSIS(VNO, CHIEF_COMPLAINT, PRESENT_ILL, PHYSICAL_EXAM, PLAN1)
+VALUES(?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
-                CHIEF_COMPLAINT = VALUES(CHIEF_COMPLAINT),
-                PRESENT_ILL = VALUES(PRESENT_ILL),
-                PHYSICAL_EXAM = VALUES(PHYSICAL_EXAM),
-                PLAN1 = VALUES(PLAN1)
-            `, [
+CHIEF_COMPLAINT = VALUES(CHIEF_COMPLAINT),
+    PRESENT_ILL = VALUES(PRESENT_ILL),
+    PHYSICAL_EXAM = VALUES(PHYSICAL_EXAM),
+    PLAN1 = VALUES(PLAN1)
+        `, [
                 vno,
                 toNull(diagnosis.CHIEF_COMPLAINT),
                 toNull(diagnosis.PRESENT_ILL),
@@ -1231,8 +1231,8 @@ router.put('/:vno', async (req, res) => {
         }
 
         // ✅ บันทึกยา - แก้ไขให้ลบเฉพาะเมื่อมีการส่ง drugs มา
-        console.log(`💊 [${vno}] ========== DRUGS PROCESSING START ==========`);
-        console.log(`💊 [${vno}] Checking drugsArray:`, {
+        console.log(`💊[${vno}] ========== DRUGS PROCESSING START ==========`);
+        console.log(`💊[${vno}] Checking drugsArray: `, {
             exists: !!drugsArray,
             isArray: Array.isArray(drugsArray),
             length: drugsArray?.length || 0,
@@ -1246,15 +1246,15 @@ router.put('/:vno', async (req, res) => {
             // ✅ มีการส่ง drugs มาใน request - ให้ลบและบันทึกใหม่
             if (drugsArray && drugsArray.length > 0) {
                 const drugsStart = Date.now();
-                console.log(`💊 [${vno}] Processing ${drugsArray.length} drugs...`);
-                console.log(`💊 [${vno}] Drugs data:`, JSON.stringify(drugsArray, null, 2));
+                console.log(`💊[${vno}] Processing ${drugsArray.length} drugs...`);
+                console.log(`💊[${vno}] Drugs data: `, JSON.stringify(drugsArray, null, 2));
 
                 // ✅ DELETE existing drugs
                 try {
-                    const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ?`, [vno]);
-                    console.log(`🗑️ [${vno}] Deleted ${deleteResult.affectedRows} existing drugs`);
+                    const [deleteResult] = await connection.execute(`DELETE FROM TREATMENT1_DRUG WHERE VNO = ? `, [vno]);
+                    console.log(`🗑️[${vno}] Deleted ${deleteResult.affectedRows} existing drugs`);
                 } catch (deleteError) {
-                    console.error(`❌ [${vno}] DELETE drugs ERROR:`, {
+                    console.error(`❌[${vno}] DELETE drugs ERROR: `, {
                         message: deleteError.message,
                         code: deleteError.code,
                         sqlState: deleteError.sqlState
@@ -1269,13 +1269,13 @@ router.put('/:vno', async (req, res) => {
                     const drugCode = toNull(drug.DRUG_CODE) || toNull(drug.drugCode) || toNull(drug.DRUGCODE);
 
                     if (!drugCode) {
-                        console.warn(`⚠️ [${vno}] Drug ${i + 1} skipped: no DRUG_CODE`);
+                        console.warn(`⚠️[${vno}] Drug ${i + 1} skipped: no DRUG_CODE`);
                         continue;
                     }
 
                     // ✅ ตรวจสอบ Master Data ก่อน Insert
                     const drugName = drug.GENERIC_NAME || drug.TRADE_NAME || drug.drugName;
-                    console.log(`💊 [${vno}] Ensuring drug exists: ${drugCode} (${drugName})`);
+                    console.log(`💊[${vno}] Ensuring drug exists: ${drugCode} (${drugName})`);
                     await ensureDrugExists(connection, drugCode, drugName); // สร้างยาใน Master ถ้ายังไม่มี
 
                     let unitCode = toNull(drug.UNIT_CODE) || toNull(drug.unitCode) || toNull(drug.UNITCODE) || 'TAB';
@@ -1293,8 +1293,8 @@ router.put('/:vno', async (req, res) => {
                         amt = qty * unitPrice;
                     }
 
-                    console.log(`💊 [${vno}] Inserting drug: ${drugCode}, QTY=${qty}, UNIT_PRICE=${unitPrice}, AMT=${amt}, UNIT_CODE=${unitCode}`);
-                    console.log(`💊 [${vno}] INSERT VALUES:`, {
+                    console.log(`💊[${vno}] Inserting drug: ${drugCode}, QTY = ${qty}, UNIT_PRICE = ${unitPrice}, AMT = ${amt}, UNIT_CODE = ${unitCode} `);
+                    console.log(`💊[${vno}] INSERT VALUES: `, {
                         VNO: vno,
                         DRUG_CODE: drugCode,
                         QTY: qty,
@@ -1307,28 +1307,28 @@ router.put('/:vno', async (req, res) => {
 
                     try {
                         const [result] = await connection.execute(`
-                        INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO TREATMENT1_DRUG(VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?)
                     `, [
                             vno, drugCode, qty, unitCode, unitPrice, amt,
                             toNull(drug.NOTE1) || toNull(drug.note) || toNull(drug.NOTE) || '',
                             toNull(drug.TIME1) || toNull(drug.time) || toNull(drug.TIME) || ''
                         ]);
-                        console.log(`✅ [${vno}] Drug ${drugCode} inserted successfully, affectedRows: ${result.affectedRows}, insertId: ${result.insertId}`);
+                        console.log(`✅[${vno}] Drug ${drugCode} inserted successfully, affectedRows: ${result.affectedRows}, insertId: ${result.insertId} `);
                         successCount++;
                     } catch (insertError) {
-                        console.error(`❌ [${vno}] INSERT drug ${drugCode} FAILED:`, {
+                        console.error(`❌[${vno}] INSERT drug ${drugCode} FAILED: `, {
                             message: insertError.message,
                             code: insertError.code,
                             sqlState: insertError.sqlState,
                             sqlMessage: insertError.sqlMessage,
                             errno: insertError.errno,
-                            sql: `INSERT INTO TREATMENT1_DRUG (VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1) VALUES ('${vno}', '${drugCode}', ${qty}, '${unitCode}', ${unitPrice}, ${amt}, '${toNull(drug.NOTE1) || ''}', '${toNull(drug.TIME1) || ''}')`
+                            sql: `INSERT INTO TREATMENT1_DRUG(VNO, DRUG_CODE, QTY, UNIT_CODE, UNIT_PRICE, AMT, NOTE1, TIME1) VALUES('${vno}', '${drugCode}', ${qty}, '${unitCode}', ${unitPrice}, ${amt}, '${toNull(drug.NOTE1) || ''}', '${toNull(drug.TIME1) || ''}')`
                         });
                         // ✅ ไม่ throw error เพื่อให้บันทึกยาตัวอื่นต่อได้ แต่ log error ไว้
                     }
                 }
-                console.log(`💊 [${vno}] Inserted ${successCount}/${drugsArray.length} drugs in ${Date.now() - drugsStart}ms`);
+                console.log(`💊[${vno}] Inserted ${successCount}/${drugsArray.length} drugs in ${Date.now() - drugsStart}ms`);
             } else {
                 // ✅ ส่ง drugs มาแต่เป็น empty array - ให้ลบข้อมูลเดิมออก
                 console.log(`💊 [${vno}] Empty drugs array received - deleting existing drugs`);

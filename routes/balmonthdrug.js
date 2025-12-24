@@ -391,11 +391,11 @@ router.post('/', async (req, res) => {
         if (isUpdate) {
             // ✅ ถ้ามีข้อมูลอยู่แล้ว ให้ UPDATE แทน
             console.log('📝 Updating existing record in BEG_MONTH_DRUG...');
-            
+
             // ดึงข้อมูลเดิมเพื่อคำนวณ BAL_DRUG
             const oldQty = parseFloat(existing[0].QTY) || 0;
             const oldAmt = parseFloat(existing[0].AMT) || 0;
-            
+
             await connection.execute(
                 `UPDATE BEG_MONTH_DRUG SET 
                     UNIT_CODE1 = ?, 
@@ -421,7 +421,7 @@ router.post('/', async (req, res) => {
                 ]
             );
             console.log('✅ Updated BEG_MONTH_DRUG');
-            
+
             // ✅ อัปเดต STOCK_CARD เมื่อ UPDATE (เช็ค LOTNO ด้วย)
             const lotNoForStock = LOT_NO || '-';
             const [stockCheck] = await connection.execute(
@@ -470,20 +470,20 @@ router.post('/', async (req, res) => {
                     ]
                 );
                 console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (new LOT)');
-                
+
                 // ✅ ถ้า INSERT STOCK_CARD ใหม่ (LOTNO ต่างกัน) ให้บวกค่าเข้า BAL_DRUG ด้วย
                 const [existingBalForNewLot] = await connection.execute(
                     'SELECT QTY, AMT FROM BAL_DRUG WHERE DRUG_CODE = ? ORDER BY AMT DESC LIMIT 1',
                     [DRUG_CODE]
                 );
-                
+
                 if (existingBalForNewLot.length > 0) {
                     const balOldQty = parseFloat(existingBalForNewLot[0].QTY) || 0;
                     const balOldAmt = parseFloat(existingBalForNewLot[0].AMT) || 0;
                     // บวกค่าใหม่เข้าไป (ไม่ต้องลบค่าเดิมเพราะเป็น LOT ใหม่)
                     const newQty = balOldQty + (parseFloat(QTY) || 0);
                     const newAmt = balOldAmt + (parseFloat(AMT) || 0);
-                    
+
                     await connection.execute(
                         `UPDATE BAL_DRUG SET 
                             QTY = ?, 
@@ -527,7 +527,7 @@ router.post('/', async (req, res) => {
                 }
                 balDrugUpdated = true; // ✅ ตั้ง flag ว่า BAL_DRUG ถูกอัปเดตแล้ว
             }
-            
+
             // ✅ คำนวณ BAL_DRUG โดยลบค่าเดิมก่อน แล้วบวกค่าใหม่ (กรณี UPDATE STOCK_CARD เดิม)
             if (!balDrugUpdated) {
                 const [existingBal] = await connection.execute(
@@ -589,7 +589,7 @@ router.post('/', async (req, res) => {
                 ]
             );
             console.log('✅ Inserted into BEG_MONTH_DRUG');
-            
+
             // 2. เพิ่มหรืออัปเดต STOCK_CARD (กรณี INSERT ใหม่) - เช็ค LOTNO ด้วย
             console.log('📝 Managing STOCK_CARD...');
             const lotNoForStock = LOT_NO || '-';
@@ -640,7 +640,7 @@ router.post('/', async (req, res) => {
                 );
                 console.log('✅ Inserted into STOCK_CARD with REFNO = BEG, BEG1, BEG1_AMT, UNIT_COST, LOTNO (new LOT)');
             }
-            
+
             // ✅ อัปเดต BAL_DRUG สำหรับกรณี INSERT BEG_MONTH_DRUG ใหม่ (เช็คตาม LOT_NO)
             console.log('📝 Managing BAL_DRUG for new BEG_MONTH_DRUG...');
             const lotNoForBal = LOT_NO || '-';
@@ -709,8 +709,8 @@ router.post('/', async (req, res) => {
 
         res.status(201).json({
             success: true,
-            message: isUpdate 
-                ? 'อัปเดตข้อมูลยอดยกมาสำเร็จในทั้ง 3 ตาราง' 
+            message: isUpdate
+                ? 'อัปเดตข้อมูลยอดยกมาสำเร็จในทั้ง 3 ตาราง'
                 : 'เพิ่มข้อมูลยอดยกมาสำเร็จในทั้ง 3 ตาราง (BAL_DRUG อัปเดตแล้ว)',
             data: {
                 MYEAR,
@@ -1079,6 +1079,103 @@ router.delete('/period/:year/:month', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการลบข้อมูลยอดยกมา',
+            error: error.message
+        });
+    } finally {
+        connection.release();
+    }
+});
+
+// ✅ POST Close Month (Snapshot BAL_DRUG to BEG_MONTH_DRUG & STOCK_CARD)
+router.post('/close-month', async (req, res) => {
+    const pool = require('../config/db');
+    const connection = await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const { year, month } = req.body;
+        console.log('🔒 Closing Month Request:', { year, month });
+
+        if (!year || !month) {
+            await connection.rollback();
+            return res.status(400).json({
+                success: false,
+                message: 'กรุณาระบุปีและเดือนที่จะปิดยอด'
+            });
+        }
+
+        const firstDayOfMonth = getFirstDayOfMonth(year, month);
+
+        // 1. Clear existing BEG for this period
+        console.log('🗑️ Clearing old BEG_MONTH_DRUG data...');
+        await connection.execute(
+            'DELETE FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ?',
+            [year, month]
+        );
+
+        console.log('🗑️ Clearing old STOCK_CARD BEG entries...');
+        await connection.execute(
+            'DELETE FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND REFNO = \'BEG\'',
+            [year, month]
+        );
+
+        // 2. Snapshot BAL_DRUG to BEG_MONTH_DRUG
+        console.log('📸 Snapshotting BAL_DRUG to BEG_MONTH_DRUG...');
+        const [insertBegResult] = await connection.execute(
+            `INSERT INTO BEG_MONTH_DRUG (
+                MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
+                QTY, UNIT_PRICE, AMT, LOT_NO, EXPIRE_DATE
+            )
+            SELECT 
+                ?, ?, DRUG_CODE, UNIT_CODE1, 
+                QTY, UNIT_PRICE, AMT, LOT_NO, EXPIRE_DATE
+            FROM BAL_DRUG
+            WHERE QTY > 0`, // Only fetch items with positive stock
+            [year, month]
+        );
+        console.log(`✅ Inserted ${insertBegResult.affectedRows} records into BEG_MONTH_DRUG`);
+
+        // 3. Create STOCK_CARD entries (REFNO = 'BEG')
+        console.log('📝 Creating STOCK_CARD entries...');
+        const [insertStockResult] = await connection.execute(
+            `INSERT INTO STOCK_CARD (
+                REFNO, RDATE, TRDATE,
+                MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
+                BEG1, BEG1_AMT, UNIT_COST, 
+                IN1, OUT1, UPD1, IN1_AMT, OUT1_AMT, UPD1_AMT,
+                LOTNO, EXPIRE_DATE
+            )
+            SELECT 
+                'BEG', ?, ?,
+                ?, ?, DRUG_CODE, UNIT_CODE1,
+                QTY, AMT, UNIT_PRICE,
+                0, 0, 0, 0, 0, 0,
+                LOT_NO, EXPIRE_DATE
+            FROM BAL_DRUG
+            WHERE QTY > 0`,
+            [firstDayOfMonth, firstDayOfMonth, year, month]
+        );
+        console.log(`✅ Inserted ${insertStockResult.affectedRows} records into STOCK_CARD`);
+
+        await connection.commit();
+        console.log('✅ Monthly Closing Completed Successfully');
+
+        res.json({
+            success: true,
+            message: `ปิดยอดประจำเดือน ${month}/${year} เรียบร้อยแล้ว`,
+            details: {
+                begRecords: insertBegResult.affectedRows,
+                stockRecords: insertStockResult.affectedRows
+            }
+        });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('❌ Error closing month:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการปิดยอดประจำเดือน',
             error: error.message
         });
     } finally {
