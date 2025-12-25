@@ -1108,7 +1108,8 @@ router.put('/:vno', async (req, res) => {
             WEIGHT1, HIGHT1, BT1, PR1, RR1, BP1, BP2, SPO2,
             TOTAL_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT,
             PAYMENT_STATUS, PAYMENT_DATE, PAYMENT_TIME,
-            PAYMENT_METHOD, RECEIVED_AMOUNT, CHANGE_AMOUNT, CASHIER
+            PAYMENT_METHOD, RECEIVED_AMOUNT, CHANGE_AMOUNT, CASHIER,
+            EXTERNAL_UCS_COUNT
         } = req.body;
 
         console.log(`📦 [${vno}] Request body:`, {
@@ -1116,6 +1117,7 @@ router.put('/:vno', async (req, res) => {
             proceduresCount: Array.isArray(procedures) ? procedures.length : 0,
             hasDrugs: req.body.hasOwnProperty('drugs'),
             hasProcedures: req.body.hasOwnProperty('procedures'),
+            externalUcsCount: EXTERNAL_UCS_COUNT,
             drugs: drugs,
             procedures: procedures
         });
@@ -1177,7 +1179,8 @@ router.put('/:vno', async (req, res) => {
                 PAYMENT_METHOD = COALESCE(?, PAYMENT_METHOD),
                 RECEIVED_AMOUNT = COALESCE(?, RECEIVED_AMOUNT),
                 CHANGE_AMOUNT = COALESCE(?, CHANGE_AMOUNT),
-                CASHIER = COALESCE(?, CASHIER)
+                CASHIER = COALESCE(?, CASHIER),
+                EXTERNAL_UCS_COUNT = COALESCE(?, EXTERNAL_UCS_COUNT)
             WHERE VNO = ?
         `, [
             toNull(SYMPTOM),
@@ -1206,6 +1209,7 @@ router.put('/:vno', async (req, res) => {
             parseNumeric(RECEIVED_AMOUNT),
             parseNumeric(CHANGE_AMOUNT),
             toNull(CASHIER),
+            parseNumeric(EXTERNAL_UCS_COUNT),
             vno
         ]);
 
