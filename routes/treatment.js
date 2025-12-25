@@ -1170,6 +1170,7 @@ router.put('/:vno', async (req, res) => {
                 TREATMENT_FEE = COALESCE(?, TREATMENT_FEE),
                 DISCOUNT_AMOUNT = COALESCE(?, DISCOUNT_AMOUNT),
                 NET_AMOUNT = COALESCE(?, NET_AMOUNT),
+                UCS_CARD = COALESCE(?, UCS_CARD),
                 PAYMENT_STATUS = COALESCE(?, PAYMENT_STATUS),
                 PAYMENT_DATE = COALESCE(?, PAYMENT_DATE),
                 PAYMENT_TIME = COALESCE(?, PAYMENT_TIME),
@@ -1197,6 +1198,7 @@ router.put('/:vno', async (req, res) => {
             parseNumeric(req.body.TREATMENT_FEE), // ✅ ค่ารักษาแยก
             parseNumeric(DISCOUNT_AMOUNT),
             parseNumeric(NET_AMOUNT),
+            toNull(req.body.UCS_CARD),
             toNull(PAYMENT_STATUS),
             toNull(PAYMENT_DATE),
             toNull(PAYMENT_TIME),
