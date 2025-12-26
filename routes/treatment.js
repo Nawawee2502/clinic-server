@@ -578,7 +578,11 @@ router.get('/check-ucs-usage/:hn', async (req, res) => {
 
         const usageCount = rows[0]?.count || 0;
         const remainingUsage = Math.max(0, MAX_UCS_VISITS - usageCount);
-        const isExceeded = usageCount >= MAX_UCS_VISITS;
+
+        // ✅ Fix: ใช้ > แทน >= เพื่อให้ครั้งที่ 2 ยังไม่เกิน (เพราะ count รวมครั้งปัจจุบันด้วยถ้าบันทึกแล้ว)
+        // หรือถ้า count คือประวัติเก่า ก็ต้องเช็คบริบท แต่ส่วนมากจะนับรวม
+        // ถ้าต้องการ "ใช้ได้ 2 ครั้ง" แปลว่า ครั้งที่ 1, 2 = OK, ครั้งที่ 3 = Exceeded
+        const isExceeded = usageCount > MAX_UCS_VISITS;
 
         res.json({
             success: true,
