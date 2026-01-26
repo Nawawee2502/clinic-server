@@ -572,6 +572,7 @@ router.get('/check-ucs-usage/:hn', async (req, res) => {
             FROM TREATMENT1 
             WHERE HNNO = ? 
             AND UCS_CARD = 'Y'
+            AND STATUS1 != 'ยกเลิก'
             AND YEAR(RDATE) = ? 
             AND MONTH(RDATE) = ?
         `, [hn, year, month]);
@@ -579,9 +580,8 @@ router.get('/check-ucs-usage/:hn', async (req, res) => {
         const usageCount = rows[0]?.count || 0;
         const remainingUsage = Math.max(0, MAX_UCS_VISITS - usageCount);
 
-        // ✅ Fix: ใช้ > แทน >= เพื่อให้ครั้งที่ 2 ยังไม่เกิน (เพราะ count รวมครั้งปัจจุบันด้วยถ้าบันทึกแล้ว)
-        // หรือถ้า count คือประวัติเก่า ก็ต้องเช็คบริบท แต่ส่วนมากจะนับรวม
-        // ถ้าต้องการ "ใช้ได้ 2 ครั้ง" แปลว่า ครั้งที่ 1, 2 = OK, ครั้งที่ 3 = Exceeded
+        // ถ้าใช้ไปแล้ว 2 ครั้ง (count=2) -> isExceeded = 2 > 2 = false (ยังไม่เกิน, ครั้งนี้ฟรี)
+        // ถ้าใช้ไปแล้ว 3 ครั้ง (count=3) -> isExceeded = 3 > 2 = true (เกินแล้ว, ครั้งนี้จ่าย)
         const isExceeded = usageCount > MAX_UCS_VISITS;
 
         res.json({
