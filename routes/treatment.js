@@ -584,6 +584,10 @@ router.get('/check-ucs-usage/:hn', async (req, res) => {
         // ถ้าใช้ไปแล้ว 3 ครั้ง (count=3) -> isExceeded = 3 > 2 = true (เกินแล้ว, ครั้งนี้จ่าย)
         const isExceeded = usageCount > MAX_UCS_VISITS;
 
+        console.log(`🔍 Check UCS Usage for HN ${hn}: Count=${usageCount}, Max=${MAX_UCS_VISITS}, Exceeded=${isExceeded}`, {
+            year, month
+        });
+
         res.json({
             success: true,
             data: {
