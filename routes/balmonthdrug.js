@@ -1105,22 +1105,34 @@ router.post('/close-month', async (req, res) => {
             });
         }
 
-        const firstDayOfMonth = getFirstDayOfMonth(year, month);
+        // ✅ Calculate Next Month (For Carry Forward)
+        // Closing Dec 2023 -> Opens Beg Bal for Jan 2024
+        let targetYear = parseInt(year);
+        let targetMonth = parseInt(month) + 1;
 
-        // 1. Clear existing BEG for this period
-        console.log('🗑️ Clearing old BEG_MONTH_DRUG data...');
+        if (targetMonth > 12) {
+            targetMonth = 1;
+            targetYear += 1;
+        }
+
+        console.log(`📅 Month Transition: Closing ${month}/${year} -> Opening ${targetMonth}/${targetYear}`);
+
+        const firstDayOfTargetMonth = getFirstDayOfMonth(targetYear, targetMonth);
+
+        // 1. Clear existing BEG for the TARGET period (Next Month)
+        console.log(`🗑️ Clearing old BEG_MONTH_DRUG data for ${targetMonth}/${targetYear}...`);
         await connection.execute(
             'DELETE FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ?',
-            [year, month]
+            [targetYear, targetMonth]
         );
 
-        console.log('🗑️ Clearing old STOCK_CARD BEG entries...');
+        console.log(`🗑️ Clearing old STOCK_CARD BEG entries for ${targetMonth}/${targetYear}...`);
         await connection.execute(
             'DELETE FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND REFNO = \'BEG\'',
-            [year, month]
+            [targetYear, targetMonth]
         );
 
-        // 2. Snapshot BAL_DRUG to BEG_MONTH_DRUG
+        // 2. Snapshot BAL_DRUG to BEG_MONTH_DRUG (Target Month)
         console.log('📸 Snapshotting BAL_DRUG to BEG_MONTH_DRUG...');
         const [insertBegResult] = await connection.execute(
             `INSERT INTO BEG_MONTH_DRUG (
@@ -1131,12 +1143,12 @@ router.post('/close-month', async (req, res) => {
                 ?, ?, DRUG_CODE, UNIT_CODE1, 
                 QTY, UNIT_PRICE, AMT, LOT_NO, EXPIRE_DATE
             FROM BAL_DRUG
-            WHERE QTY > 0`, // Only fetch items with positive stock
-            [year, month]
+            WHERE QTY > 0 AND QTY IS NOT NULL`, // ✅ Exclude 0 and NULL
+            [targetYear, targetMonth]
         );
         console.log(`✅ Inserted ${insertBegResult.affectedRows} records into BEG_MONTH_DRUG`);
 
-        // 3. Create STOCK_CARD entries (REFNO = 'BEG')
+        // 3. Create STOCK_CARD entries (REFNO = 'BEG') for Target Month
         console.log('📝 Creating STOCK_CARD entries...');
         const [insertStockResult] = await connection.execute(
             `INSERT INTO STOCK_CARD (
@@ -1153,8 +1165,8 @@ router.post('/close-month', async (req, res) => {
                 0, 0, 0, 0, 0, 0,
                 LOT_NO, EXPIRE_DATE
             FROM BAL_DRUG
-            WHERE QTY > 0`,
-            [firstDayOfMonth, firstDayOfMonth, year, month]
+            WHERE QTY > 0 AND QTY IS NOT NULL`, // ✅ Exclude 0 and NULL
+            [firstDayOfTargetMonth, firstDayOfTargetMonth, targetYear, targetMonth]
         );
         console.log(`✅ Inserted ${insertStockResult.affectedRows} records into STOCK_CARD`);
 
@@ -1163,8 +1175,10 @@ router.post('/close-month', async (req, res) => {
 
         res.json({
             success: true,
-            message: `ปิดยอดประจำเดือน ${month}/${year} เรียบร้อยแล้ว`,
+            message: `ปิดยอดประจำเดือน ${month}/${year} เรียบร้อยแล้ว (ยกยอดไปยัง ${targetMonth}/${targetYear})`,
             details: {
+                closedPeriod: `${month}/${year}`,
+                openedPeriod: `${targetMonth}/${targetYear}`,
                 begRecords: insertBegResult.affectedRows,
                 stockRecords: insertStockResult.affectedRows
             }
