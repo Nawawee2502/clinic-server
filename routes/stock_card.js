@@ -796,8 +796,266 @@ router.delete('/period/:year/:month', async (req, res) => {
             message: 'เกิดข้อผิดพลาดในการลบข้อมูล STOCK_CARD',
             error: error.message
         });
-    } finally {
-        connection.release();
+    }
+});
+
+// ✅ GET Reverse Calculation Report (The "Work Backwards" Logic)
+router.get('/reverse-report', async (req, res) => {
+    try {
+        const pool = require('../config/db');
+        const { year, month, drugCode, lotNo } = req.query;
+
+        console.log('🔄 Calculating Reverse Stock Report:', { year, month, drugCode, lotNo });
+
+        if (!year || !month) {
+            return res.status(400).json({
+                success: false,
+                message: 'กรุณาระบุปีและเดือน'
+            });
+        }
+
+        const targetYear = parseInt(year);
+        const targetMonth = parseInt(month);
+
+        // 1. Get Current Stock Snapshot (The Absolute Truth)
+        let balQuery = `
+            SELECT 
+                b.DRUG_CODE, 
+                d.GENERIC_NAME, 
+                d.TRADE_NAME,
+                b.QTY as CURRENT_QTY,
+                b.LOT_NO,
+                b.EXPIRE_DATE,
+                u.UNIT_NAME as UNIT_NAME1
+            FROM BAL_DRUG b
+            LEFT JOIN TABLE_DRUG d ON b.DRUG_CODE = d.DRUG_CODE
+            LEFT JOIN TABLE_UNIT u ON b.UNIT_CODE1 = u.UNIT_CODE
+            WHERE 1=1
+        `;
+
+        const balParams = [];
+        if (drugCode) {
+            balQuery += ' AND b.DRUG_CODE = ?';
+            balParams.push(drugCode);
+        }
+        if (lotNo) {
+            if (lotNo === '-' || lotNo.toLowerCase() === 'null') {
+                balQuery += " AND (b.LOT_NO IS NULL OR b.LOT_NO = '-' OR b.LOT_NO = '')";
+            } else {
+                balQuery += ' AND b.LOT_NO = ?';
+                balParams.push(lotNo);
+            }
+        }
+
+        const [currentStock] = await pool.execute(balQuery, balParams);
+        console.log(`📊 Found ${currentStock.length} current stock records`);
+
+        // 2. Get All Future Transactions (From Target Month End until NOW)
+        // logic: transaction_date > last_day_of_target_month
+        // But stock_card stores MYEAR/MONTHH, so we filter by (MYEAR > targetYear) OR (MYEAR = targetYear AND MONTHH > targetMonth)
+
+        let futureQuery = `
+            SELECT 
+                DRUG_CODE, LOTNO,
+                SUM(IN1) as TOTAL_IN,
+                SUM(OUT1) as TOTAL_OUT
+            FROM STOCK_CARD
+            WHERE (MYEAR > ?) OR (MYEAR = ? AND MONTHH > ?)
+        `;
+        const futureParams = [targetYear, targetYear, targetMonth];
+
+        if (drugCode) {
+            futureQuery += ' AND DRUG_CODE = ?';
+            futureParams.push(drugCode);
+        }
+        if (lotNo) {
+            if (lotNo === '-' || lotNo.toLowerCase() === 'null') {
+                futureQuery += " AND (LOTNO IS NULL OR LOTNO = '-' OR LOTNO = '')";
+            } else {
+                futureQuery += ' AND LOTNO = ?';
+                futureParams.push(lotNo);
+            }
+        }
+
+        futureQuery += ' GROUP BY DRUG_CODE, LOTNO';
+
+        const [futureMovements] = await pool.execute(futureQuery, futureParams);
+
+        // Map future movements for quick lookup
+        const futureMap = {};
+        futureMovements.forEach(m => {
+            const key = `${m.DRUG_CODE}_${m.LOTNO || '-'}`;
+            futureMap[key] = m;
+        });
+
+        // 3. Get Target Month Transactions (The ones we want to display)
+        let targetQuery = `
+             SELECT 
+                s.REFNO,
+                s.RDATE,
+                s.TRDATE,
+                s.MYEAR,
+                s.MONTHH,
+                s.DRUG_CODE,
+                d.GENERIC_NAME,
+                d.TRADE_NAME,
+                s.UNIT_CODE1,
+                u.UNIT_NAME as UNIT_NAME1,
+                s.BEG1, -- We will ignore this and recalculate it
+                s.IN1,
+                s.OUT1,
+                s.UPD1,
+                s.UNIT_COST,
+                s.BEG1_AMT,
+                s.IN1_AMT,
+                s.OUT1_AMT,
+                s.UPD1_AMT,
+                s.LOTNO,
+                s.EXPIRE_DATE
+            FROM STOCK_CARD s
+            LEFT JOIN TABLE_DRUG d ON s.DRUG_CODE = d.DRUG_CODE
+            LEFT JOIN TABLE_UNIT u ON s.UNIT_CODE1 = u.UNIT_CODE
+            WHERE s.MYEAR = ? AND s.MONTHH = ?
+        `;
+        const targetParams = [targetYear, targetMonth];
+
+        if (drugCode) {
+            targetQuery += ' AND s.DRUG_CODE = ?';
+            targetParams.push(drugCode);
+        }
+        if (lotNo) {
+            if (lotNo === '-' || lotNo.toLowerCase() === 'null') {
+                targetQuery += " AND (s.LOTNO IS NULL OR s.LOTNO = '-' OR s.LOTNO = '')";
+            } else {
+                targetQuery += ' AND s.LOTNO = ?';
+                targetParams.push(lotNo);
+            }
+        }
+
+        targetQuery += ' ORDER BY s.DRUG_CODE, s.LOTNO, s.RDATE, s.REFNO';
+
+        const [targetTransactions] = await pool.execute(targetQuery, targetParams);
+
+        // 4. Perform Reverse Calculation
+        // result array will hold the transactions with corrected BEG1
+        const resultTransactions = [];
+
+        // We need to process by Group (Drug + Lot)
+        // Let's gather all unique keys from CurrentStock AND TargetTransactions
+        const allKeys = new Set();
+        const stockMap = {}; // Current Stock Map
+
+        currentStock.forEach(item => {
+            const key = `${item.DRUG_CODE}_${item.LOT_NO || '-'}`;
+            allKeys.add(key);
+            stockMap[key] = item;
+        });
+
+        targetTransactions.forEach(tx => {
+            const key = `${tx.DRUG_CODE}_${tx.LOTNO || '-'}`;
+            allKeys.add(key);
+        });
+
+        // Iterate through each Drug/Lot group
+        for (const key of allKeys) {
+            const [dCode, lNo] = key.split('_');
+            const realLot = lNo === '-' ? null : lNo;
+
+            // 4.1 Determine Ending Balance of Target Month
+            // EndBal = CurrentBal - (FutureIN - FutureOUT)
+            // Actually: Current = EndBal + FutureIN - FutureOUT
+            // So: EndBal = Current - FutureIN + FutureOUT
+
+            const currentItem = stockMap[key];
+            const currentQty = currentItem ? parseFloat(currentItem.CURRENT_QTY || 0) : 0;
+
+            const futureMov = futureMap[key];
+            const futureIn = futureMov ? parseFloat(futureMov.TOTAL_IN || 0) : 0;
+            const futureOut = futureMov ? parseFloat(futureMov.TOTAL_OUT || 0) : 0;
+
+            const targetMonthEndQty = currentQty - futureIn + futureOut;
+
+            // 4.2 Calculate Beginning Balance of Target Month
+            // TargetEnd = TargetStart + TargetIN - TargetOUT
+            // TargetStart = TargetEnd - TargetIN + TargetOUT
+
+            // Get transactions for this group in target month
+            const groupTxs = targetTransactions.filter(t =>
+                t.DRUG_CODE === dCode && (t.LOTNO || '-') === (realLot || '-')
+            );
+
+            const totalTargetIn = groupTxs.reduce((sum, t) => sum + (parseFloat(t.IN1) || 0), 0);
+            const totalTargetOut = groupTxs.reduce((sum, t) => sum + (parseFloat(t.OUT1) || 0), 0);
+
+            const targetMonthStartQty = targetMonthEndQty - totalTargetIn + totalTargetOut;
+
+            // 4.3 Assign Calculated BEG to transactions
+            // We want to return the transactions exactly as they are, but we might want to inject the "Initial BEG" 
+            // so the frontend can display the running balance correctly.
+            // However, the standard report format expects a list of rows. 
+            // Ideally, we should insert a "Beginning Balance" row if it doesn't exist, or just return the metadata.
+
+            // Let's modify the transactions to include the calculated running balance?
+            // Or better: Just return the raw transactions, but attach the "CalculatedStartQty" to the first one?
+            // Actually, the simplest way for the frontend (StockCardReport.js) to understand is if we return:
+            // 1. The transactions
+            // 2. A "Beginning Balance" map for each Drug/Lot
+
+            // But wait, the Frontend likely iterates rows and expects `BEG1` column to be there.
+            // If we want to fix `BEG1` in each row (which is usually the balance BEFORE that transaction), we can calculate it.
+
+            let runningBalance = targetMonthStartQty;
+
+            if (groupTxs.length === 0) {
+                // Even if no transactions in this month, if there is a balance, we should probably return a "dummy" BEG record?
+                // Standard stock card reports usually only show movements. 
+                // If there's no movement but there is stock, it might show 1 line "Beginning Balance".
+                if (targetMonthStartQty !== 0 || targetMonthEndQty !== 0) {
+                    // create a synthetic "Beginning Balance" mock object if needed, 
+                    // or rely on frontend to display "No movements, Balance: X"
+                    // For now, let's push a dummy row if you want, or just handle it in frontend.
+                    // Let's stick to returning transactions and let frontend handle "No Transaction" case using `summary` data.
+                }
+            } else {
+                // Determine BEG for each transaction line (Running Balance)
+                // Transaction 1: BEG = MonthStart
+                // Transaction 2: BEG = MonthStart + T1.IN - T1.OUT
+
+                for (const tx of groupTxs) {
+                    tx.CALCULATED_BEG = runningBalance;
+                    tx.CALCULATED_END = runningBalance + (parseFloat(tx.IN1) || 0) - (parseFloat(tx.OUT1) || 0);
+
+                    // Update running balance for next row
+                    runningBalance = tx.CALCULATED_END;
+
+                    // Push to result
+                    resultTransactions.push(tx);
+                }
+            }
+        }
+
+        // Sort results again
+        resultTransactions.sort((a, b) => {
+            if (a.DRUG_CODE !== b.DRUG_CODE) return a.DRUG_CODE.localeCompare(b.DRUG_CODE);
+            if (a.RDATE !== b.RDATE) return new Date(a.RDATE) - new Date(b.RDATE);
+            return 0;
+        });
+
+        res.json({
+            success: true,
+            data: resultTransactions,
+            count: resultTransactions.length,
+            period: { year, month },
+            isReverseCalculation: true
+        });
+
+    } catch (error) {
+        console.error('❌ Error calculating reverse stock report:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการคำนวณรายงานสต็อกย้อนหลัง',
+            error: error.message
+        });
     }
 });
 
