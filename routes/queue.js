@@ -211,6 +211,78 @@ router.get('/all', async (req, res) => {
     }
 });
 
+// GET all queue with payment status (Optimized for Payment Page)
+router.get('/all-with-payment-status', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+
+        console.log(`📅 Fetching all queue with payment status`);
+
+        const [rows] = await db.execute(`
+            SELECT 
+                dq.QUEUE_ID,
+                dq.QUEUE_NUMBER,
+                dq.QUEUE_TIME,
+                dq.STATUS,
+                dq.TYPE,
+                dq.CHIEF_COMPLAINT,
+                dq.APPOINTMENT_ID,
+                dq.CREATED_AT,
+                dq.QUEUE_DATE,
+                dq.SOCIAL_CARD,
+                dq.UCS_CARD,
+                -- Patient data
+                p.HNCODE,
+                p.PRENAME,
+                p.NAME1,
+                p.SURNAME,
+                p.AGE,
+                p.SEX,
+                p.TEL1,
+                p.SOCIAL_CARD as PATIENT_SOCIAL_CARD,
+                p.UCS_CARD as PATIENT_UCS_CARD,
+                p.DRUG_ALLERGY,
+                p.DISEASE1,
+                p.WEIGHT1,
+                -- Treatment data
+                t.VNO,
+                t.STATUS1 as TREATMENT_STATUS,
+                t.PAYMENT_STATUS,
+                t.TOTAL_AMOUNT,
+                t.TREATMENT_FEE,
+                t.EXTERNAL_UCS_COUNT,
+                t.UCS_CARD as TREATMENT_UCS_CARD
+            FROM DAILY_QUEUE dq
+            LEFT JOIN patient1 p ON dq.HNCODE = p.HNCODE
+            LEFT JOIN TREATMENT1 t ON dq.QUEUE_ID = t.QUEUE_ID
+            ORDER BY dq.QUEUE_DATE DESC, dq.QUEUE_NUMBER
+        `);
+
+        console.log(`📊 Found ${rows.length} queue items with payment status`);
+
+        res.json({
+            success: true,
+            data: rows,
+            count: rows.length,
+            thailandTime: getThailandTime().toISOString(),
+            serverTime: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('Error fetching all queue with payment status:', {
+            message: error.message,
+            code: error.code,
+            sqlMessage: error.sqlMessage
+        });
+
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลคิวและสถานะการชำระเงิน',
+            error: error.message,
+            errorCode: error.code
+        });
+    }
+});
+
 // GET today's appointments
 router.get('/appointments/today', async (req, res) => {
     try {
