@@ -271,6 +271,194 @@ router.get('/', async (req, res) => {
     }
 });
 
+// ✅ GET Bulk Treatment Details (Optimized for Reports)
+router.get('/reports/bulk-details', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const {
+            date_from, date_to, status, emp_code, hnno,
+            payment_status, limit = 100000
+        } = req.query;
+
+        console.log('🚀 Fetching BULK details for report:', req.query);
+
+        // 1. Fetch Base Treatments
+        let whereClause = 'WHERE 1=1';
+        let params = [];
+
+        if (status) {
+            whereClause += ' AND t.STATUS1 = ?';
+            params.push(status);
+        }
+        if (emp_code) {
+            whereClause += ' AND t.EMP_CODE = ?';
+            params.push(emp_code);
+        }
+        if (hnno) {
+            whereClause += ' AND t.HNNO = ?';
+            params.push(hnno);
+        }
+        if (date_from) {
+            whereClause += ' AND DATE(t.RDATE) >= ?';
+            params.push(date_from);
+        }
+        if (date_to) {
+            whereClause += ' AND DATE(t.RDATE) <= ?';
+            params.push(date_to);
+        }
+        if (payment_status) {
+            whereClause += ' AND t.PAYMENT_STATUS = ?';
+            params.push(payment_status);
+        }
+
+        // Limit is important to prevent memory explosion
+        const limitInt = parseInt(limit);
+
+        const [treatments] = await db.execute(`
+            SELECT 
+                t.VNO, t.HNNO, t.RDATE, t.TRDATE, t.STATUS1,
+                t.SYMPTOM, t.TREATMENT1, 
+                t.TOTAL_AMOUNT, t.DISCOUNT_AMOUNT, t.NET_AMOUNT,
+                t.PAYMENT_STATUS, t.PAYMENT_DATE, t.PAYMENT_TIME,
+                t.PAYMENT_METHOD, t.RECEIVED_AMOUNT, t.CHANGE_AMOUNT,
+                p.PRENAME, p.NAME1, p.SURNAME, p.AGE, p.SEX, p.TEL1,
+                p.SOCIAL_CARD, p.UCS_CARD,
+                e.EMP_NAME,
+                dx.DXNAME_THAI, dx.DXNAME_ENG,
+                icd.ICD10NAME_THAI
+            FROM TREATMENT1 t
+            LEFT JOIN patient1 p ON t.HNNO = p.HNCODE
+            LEFT JOIN EMPLOYEE1 e ON t.EMP_CODE = e.EMP_CODE
+            LEFT JOIN TABLE_DX dx ON t.DXCODE = dx.DXCODE
+            LEFT JOIN TABLE_ICD10 icd ON t.ICD10CODE = icd.ICD10CODE
+            ${whereClause}
+            ORDER BY t.RDATE DESC, t.VNO DESC
+            LIMIT ?
+        `, [...params, limitInt]);
+
+        if (treatments.length === 0) {
+            return res.json({
+                success: true,
+                data: [],
+                count: 0
+            });
+        }
+
+        const vnos = treatments.map(t => t.VNO);
+        console.log(`📦 Found ${treatments.length} treatments. Fetching details...`);
+
+        // Helper for WHERE IN clause
+        const placeholders = vnos.map(() => '?').join(',');
+
+        // 2. Bulk Fetch Details
+        const [drugs] = await db.execute(`
+            SELECT 
+                td.VNO, td.DRUG_CODE, td.QTY, td.UNIT_CODE, td.UNIT_PRICE, td.AMT,
+                COALESCE(d.GENERIC_NAME, 'ยาไม่ระบุ') as GENERIC_NAME,
+                COALESCE(d.TRADE_NAME, '') as TRADE_NAME
+            FROM TREATMENT1_DRUG td
+            LEFT JOIN TABLE_DRUG d ON td.DRUG_CODE = d.DRUG_CODE
+            WHERE td.VNO IN (${placeholders})
+        `, vnos);
+
+        const [procedures] = await db.execute(`
+            SELECT 
+                tmp.VNO, tmp.MEDICAL_PROCEDURE_CODE, tmp.QTY, tmp.UNIT_CODE, tmp.UNIT_PRICE, tmp.AMT,
+                COALESCE(mp.MED_PRO_NAME_THAI, 'หัตถการไม่ระบุ') as PROCEDURE_NAME
+            FROM TREATMENT1_MED_PROCEDURE tmp
+            LEFT JOIN TABLE_MEDICAL_PROCEDURES mp ON tmp.MEDICAL_PROCEDURE_CODE = mp.MEDICAL_PROCEDURE_CODE
+            WHERE tmp.VNO IN (${placeholders})
+        `, vnos);
+
+        const [labTests] = await db.execute(`
+             SELECT tl.VNO, tl.LABCODE, COALESCE(l.LABNAME, 'การตรวจไม่ระบุ') as LABNAME, 100 as PRICE
+             FROM TREATMENT1_LABORATORY tl
+             LEFT JOIN TABLE_LAB l ON tl.LABCODE = l.LABCODE
+             WHERE tl.VNO IN (${placeholders})
+        `, vnos);
+
+        const [radioTests] = await db.execute(`
+             SELECT tr.VNO, tr.RLCODE, COALESCE(r.RLNAME, 'การตรวจไม่ระบุ') as RLNAME, 200 as PRICE
+             FROM TREATMENT1_RADIOLOGICAL tr
+             LEFT JOIN TABLE_RADIOLOGICAL r ON tr.RLCODE = r.RLCODE
+             WHERE tr.VNO IN (${placeholders})
+        `, vnos);
+
+        // 3. Map Details to Treatments
+        const drugMap = {};
+        const procMap = {};
+        const labMap = {};
+        const radioMap = {};
+
+        drugs.forEach(d => {
+            if (!drugMap[d.VNO]) drugMap[d.VNO] = [];
+            drugMap[d.VNO].push(d);
+        });
+        procedures.forEach(p => {
+            if (!procMap[p.VNO]) procMap[p.VNO] = [];
+            procMap[p.VNO].push(p);
+        });
+        labTests.forEach(l => {
+            if (!labMap[l.VNO]) labMap[l.VNO] = [];
+            labMap[l.VNO].push(l);
+        });
+        radioTests.forEach(r => {
+            if (!radioMap[r.VNO]) radioMap[r.VNO] = [];
+            radioMap[r.VNO].push(r);
+        });
+
+        const detailedTreatments = treatments.map(t => {
+            const tDrugs = drugMap[t.VNO] || [];
+            const tProcs = procMap[t.VNO] || [];
+            const tLabs = labMap[t.VNO] || [];
+            const tRadios = radioMap[t.VNO] || [];
+
+            // Calculate costs locally to match single-fetch logic
+            const totalDrugCost = tDrugs.reduce((sum, d) => sum + (parseFloat(d.AMT) || 0), 0);
+            const totalProcedureCost = tProcs.reduce((sum, p) => sum + (parseFloat(p.AMT) || 0), 0);
+            const totalLabCost = tLabs.reduce((sum, l) => sum + (parseFloat(l.PRICE) || 0), 0);
+            const totalRadioCost = tRadios.reduce((sum, r) => sum + (parseFloat(r.PRICE) || 0), 0);
+            const totalCost = totalDrugCost + totalProcedureCost + totalLabCost + totalRadioCost;
+
+            return {
+                ...t,
+                drugs: tDrugs,
+                procedures: tProcs,
+                labTests: tLabs,
+                radiologicalTests: tRadios,
+                summary: {
+                    totalDrugCost,
+                    totalProcedureCost,
+                    totalLabCost,
+                    totalRadioCost,
+                    totalCost,
+                    drugCount: tDrugs.length,
+                    procedureCount: tProcs.length,
+                    labTestCount: tLabs.length,
+                    radioTestCount: tRadios.length
+                }
+            };
+        });
+
+        console.log(`✅ Successfully assembled ${detailedTreatments.length} detailed records.`);
+
+        res.json({
+            success: true,
+            data: detailedTreatments,
+            count: detailedTreatments.length
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching bulk details:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลแบบ Bulk',
+            error: error.message
+        });
+    }
+});
+
+
 // ✅ GET Pending Gold Card Treatments (ต้องอยู่ก่อน route /:vno)
 router.get('/ucs/pending', async (req, res) => {
     try {
