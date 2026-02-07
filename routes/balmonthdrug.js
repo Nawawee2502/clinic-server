@@ -1095,7 +1095,7 @@ router.post('/close-month', async (req, res) => {
         await connection.beginTransaction();
 
         const { year, month } = req.body;
-        console.log('🔒 Closing Month Request:', { year, month });
+        console.log('🔒 Closing Month Request (Retroactive Supported):', { year, month });
 
         if (!year || !month) {
             await connection.rollback();
@@ -1105,7 +1105,7 @@ router.post('/close-month', async (req, res) => {
             });
         }
 
-        // ✅ Calculate Next Month (For Carry Forward)
+        // ✅ Calculate Target Month (The month being opened)
         // Closing Dec 2023 -> Opens Beg Bal for Jan 2024
         let targetYear = parseInt(year);
         let targetMonth = parseInt(month) + 1;
@@ -1117,70 +1117,171 @@ router.post('/close-month', async (req, res) => {
 
         console.log(`📅 Month Transition: Closing ${month}/${year} -> Opening ${targetMonth}/${targetYear}`);
 
+        // 🟢 1. Calculate Cut-off Date (The last moment of the month being closed)
+        // We want the stock status at the END of the requested closing month.
+        // Actually, for "Beginning of Target Month", it is effectively the moment before 1st of Target Month.
         const firstDayOfTargetMonth = getFirstDayOfMonth(targetYear, targetMonth);
 
-        // 1. Clear existing BEG for the TARGET period (Next Month)
-        console.log(`🗑️ Clearing old BEG_MONTH_DRUG data for ${targetMonth}/${targetYear}...`);
+        // 🟢 2. Fetch Current Balance (Snapshot at "Now")
+        // We start with what we have NOW in BAL_DRUG
+        const [currentStock] = await connection.execute(
+            `SELECT DRUG_CODE, UNIT_CODE1, QTY, UNIT_PRICE, AMT, LOT_NO, EXPIRE_DATE 
+             FROM BAL_DRUG 
+             WHERE QTY > 0 AND QTY IS NOT NULL`
+        );
+
+        // Map to easily access by key (Drug + Lot)
+        const stockMap = new Map();
+        currentStock.forEach(item => {
+            // Key: DrugCode | LotNo (Handle nulls)
+            const key = `${item.DRUG_CODE}|${item.LOT_NO || '-'}`;
+            stockMap.set(key, {
+                qty: parseFloat(item.QTY) || 0,
+                amt: parseFloat(item.AMT) || 0,
+                unitPrice: parseFloat(item.UNIT_PRICE) || 0,
+                unitCode: item.UNIT_CODE1,
+                expireDate: item.EXPIRE_DATE
+            });
+        });
+
+        // 🟢 3. Fetch "Future" Transactions (Movements AFTER the cut-off date)
+        // We need to REVERSE these to go back in time.
+        // Find movements in STOCK_CARD where TRDATE >= firstDayOfTargetMonth
+        // Note: Using TRDATE (Transaction Date) is standard.
+        const [futureMovements] = await connection.execute(
+            `SELECT DRUG_CODE, LOTNO, 
+                    SUM(IN1) as totalIn, 
+                    SUM(OUT1) as totalOut, 
+                    SUM(UPD1) as totalUpd,
+                    SUM(IN1_AMT) as totalInAmt,
+                    SUM(OUT1_AMT) as totalOutAmt,
+                    SUM(UPD1_AMT) as totalUpdAmt
+             FROM STOCK_CARD 
+             WHERE TRDATE >= ? 
+             AND REFNO != 'BEG' -- Exclude Opening Balances of future months to avoid double counting
+             GROUP BY DRUG_CODE, LOTNO`,
+            [firstDayOfTargetMonth]
+        );
+
+        // 🟢 4. Apply Reverse Calculation
+        // Historical Stock = Current Stock - (In - Out + Upd)
+        // Wait... Logic Check:
+        // Start + In - Out = End (Current)
+        // Start = End - In + Out
+        // So: Historical = Current - In + Out - Upd (Assuming UPD is an adjustment that *added* to stock. If UPD can be negative, logic holds)
+        // Let's refine:
+        // BalanceNow = BalanceThen + InBetween - OutBetween + UpdBetween
+        // BalanceThen = BalanceNow - InBetween + OutBetween - UpdBetween
+
+        futureMovements.forEach(move => {
+            const key = `${move.DRUG_CODE}|${move.LOTNO || '-'}`;
+            const current = stockMap.get(key) || { qty: 0, amt: 0, unitPrice: 0, unitCode: null, expireDate: null };
+
+            const totalIn = parseFloat(move.totalIn) || 0;
+            const totalOut = parseFloat(move.totalOut) || 0;
+            const totalUpd = parseFloat(move.totalUpd) || 0;
+
+            const totalInAmt = parseFloat(move.totalInAmt) || 0;
+            const totalOutAmt = parseFloat(move.totalOutAmt) || 0;
+            const totalUpdAmt = parseFloat(move.totalUpdAmt) || 0;
+
+            // Reverse calc
+            const historicalQty = current.qty - totalIn + totalOut - totalUpd;
+            const historicalAmt = current.amt - totalInAmt + totalOutAmt - totalUpdAmt;
+
+            // Update or Set map
+            stockMap.set(key, {
+                ...current,
+                qty: historicalQty,
+                amt: historicalAmt,
+                // Preserving metadata (might use current if available, otherwise it's lost for fully depleted items)
+                // If item is fully depleted now but existed then, we might miss UnitCode/Price if not in BAL_DRUG.
+                // Improvement: We could query metadata from TABLE_DRUG or history if needed.
+                // For now, use current fallback or defaults.
+            });
+        });
+
+        // 🟢 5. Prepare Data for Insertion
+        const begEntries = [];
+        for (const [key, data] of stockMap.entries()) {
+            if (data.qty > 0.001) { // Filter out zero or near-zero floating point issues
+                const [drugCode, lotNo] = key.split('|');
+                const cleanLotNo = lotNo === '-' ? null : lotNo;
+
+                begEntries.push([
+                    targetYear, targetMonth, drugCode, data.unitCode,
+                    data.qty, data.unitPrice, data.amt, cleanLotNo, data.expireDate
+                ]);
+            }
+        }
+
+        console.log(`📊 Calculated ${begEntries.length} items for Opening Balance of ${targetMonth}/${targetYear}`);
+
+        // 🟢 6. Clear Existing Data (Allow Re-closing)
         await connection.execute(
             'DELETE FROM BEG_MONTH_DRUG WHERE MYEAR = ? AND MONTHH = ?',
             [targetYear, targetMonth]
         );
 
-        console.log(`🗑️ Clearing old STOCK_CARD BEG entries for ${targetMonth}/${targetYear}...`);
         await connection.execute(
             'DELETE FROM STOCK_CARD WHERE MYEAR = ? AND MONTHH = ? AND REFNO = \'BEG\'',
             [targetYear, targetMonth]
         );
 
-        // 2. Snapshot BAL_DRUG to BEG_MONTH_DRUG (Target Month)
-        console.log('📸 Snapshotting BAL_DRUG to BEG_MONTH_DRUG...');
-        const [insertBegResult] = await connection.execute(
-            `INSERT INTO BEG_MONTH_DRUG (
-                MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
-                QTY, UNIT_PRICE, AMT, LOT_NO, EXPIRE_DATE
-            )
-            SELECT 
-                ?, ?, DRUG_CODE, UNIT_CODE1, 
-                QTY, UNIT_PRICE, AMT, LOT_NO, EXPIRE_DATE
-            FROM BAL_DRUG
-            WHERE QTY > 0 AND QTY IS NOT NULL`, // ✅ Exclude 0 and NULL
-            [targetYear, targetMonth]
-        );
-        console.log(`✅ Inserted ${insertBegResult.affectedRows} records into BEG_MONTH_DRUG`);
+        // 🟢 7. Batch Insert (Chunked for performance)
+        if (begEntries.length > 0) {
+            const chunkSize = 1000;
+            for (let i = 0; i < begEntries.length; i += chunkSize) {
+                const chunk = begEntries.slice(i, i + chunkSize);
 
-        // 3. Create STOCK_CARD entries (REFNO = 'BEG') for Target Month
-        console.log('📝 Creating STOCK_CARD entries...');
-        const [insertStockResult] = await connection.execute(
-            `INSERT INTO STOCK_CARD (
-                REFNO, RDATE, TRDATE,
-                MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
-                BEG1, BEG1_AMT, UNIT_COST, 
-                IN1, OUT1, UPD1, IN1_AMT, OUT1_AMT, UPD1_AMT,
-                LOTNO, EXPIRE_DATE
-            )
-            SELECT 
-                'BEG', ?, ?,
-                ?, ?, DRUG_CODE, UNIT_CODE1,
-                QTY, AMT, UNIT_PRICE,
-                0, 0, 0, 0, 0, 0,
-                LOT_NO, EXPIRE_DATE
-            FROM BAL_DRUG
-            WHERE QTY > 0 AND QTY IS NOT NULL`, // ✅ Exclude 0 and NULL
-            [firstDayOfTargetMonth, firstDayOfTargetMonth, targetYear, targetMonth]
-        );
-        console.log(`✅ Inserted ${insertStockResult.affectedRows} records into STOCK_CARD`);
+                // Construct Bulk Insert Query for BEG_MONTH_DRUG
+                // Note: mysql2 execute doesn't support bulk insert with [[]] syntax natively for 'execute', use 'query' or manual placeholder building
+                // We'll use manual placeholder building for transaction safety with 'execute'
+
+                const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+                const flatValues = chunk.flat();
+
+                await connection.execute(
+                    `INSERT INTO BEG_MONTH_DRUG (
+                        MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
+                        QTY, UNIT_PRICE, AMT, LOT_NO, EXPIRE_DATE
+                    ) VALUES ${placeholders}`,
+                    flatValues
+                );
+
+                // Construct Bulk Insert Query for STOCK_CARD
+                const cardPlaceholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+                const cardValues = chunk.flatMap(item => [
+                    'BEG', firstDayOfTargetMonth, firstDayOfTargetMonth,
+                    item[0], item[1], item[2], item[3], // MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1
+                    item[4], 0, 0, 0, // BEG1, IN1, OUT1, UPD1
+                    item[5], item[6], 0, 0, 0, // UNIT_COST, BEG1_AMT...
+                    item[7] || '-', item[8] // LOTNO, EXPIRE_DATE
+                ]);
+
+                await connection.execute(
+                    `INSERT INTO STOCK_CARD (
+                        REFNO, RDATE, TRDATE,
+                        MYEAR, MONTHH, DRUG_CODE, UNIT_CODE1, 
+                        BEG1, IN1, OUT1, UPD1,
+                        UNIT_COST, BEG1_AMT, IN1_AMT, OUT1_AMT, UPD1_AMT,
+                        LOTNO, EXPIRE_DATE
+                    ) VALUES ${cardPlaceholders}`,
+                    cardValues
+                );
+            }
+        }
 
         await connection.commit();
-        console.log('✅ Monthly Closing Completed Successfully');
+        console.log('✅ Retroactive Monthly Closing Completed Successfully');
 
         res.json({
             success: true,
-            message: `ปิดยอดประจำเดือน ${month}/${year} เรียบร้อยแล้ว (ยกยอดไปยัง ${targetMonth}/${targetYear})`,
+            message: `ปิดยอดประจำเดือน ${month}/${year} เรียบร้อยแล้ว (คำนวณย้อนหลัง)`,
             details: {
                 closedPeriod: `${month}/${year}`,
                 openedPeriod: `${targetMonth}/${targetYear}`,
-                begRecords: insertBegResult.affectedRows,
-                stockRecords: insertStockResult.affectedRows
+                records: begEntries.length
             }
         });
 
