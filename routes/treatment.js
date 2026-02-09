@@ -842,11 +842,18 @@ router.get('/patient/:hn', async (req, res) => {
         const pageInt = Math.max(1, parseInt(page, 10) || 1);
         const offset = (pageInt - 1) * limitInt;
 
-        console.log(`Fetching treatments - HN: ${hn}, Page: ${pageInt}, Limit: ${limitInt}, Offset: ${offset}`);
+        console.log(`Fetching treatments (Optimized) - HN: ${hn}, Page: ${pageInt}, Limit: ${limitInt}, Offset: ${offset}`);
 
+        // 1. Fetch Base Treatments (Paginated)
         const [rows] = await db.execute(`
             SELECT 
                 t.VNO, t.RDATE, t.TRDATE, t.STATUS1, t.SYMPTOM, t.TREATMENT1,
+                t.TOTAL_AMOUNT, t.DISCOUNT_AMOUNT, t.NET_AMOUNT,
+                t.PAYMENT_STATUS, t.PAYMENT_DATE, t.PAYMENT_TIME,
+                t.PAYMENT_METHOD, t.RECEIVED_AMOUNT, t.CHANGE_AMOUNT,
+                t.WEIGHT1, t.HIGHT1, t.BT1, t.BP1, t.BP2, t.RR1, t.PR1, t.SPO2,
+                t.INVESTIGATION_NOTES,
+                t.DXCODE,
                 e.EMP_NAME,
                 dx.DXNAME_THAI,
                 icd.ICD10NAME_THAI,
@@ -865,11 +872,98 @@ router.get('/patient/:hn', async (req, res) => {
             SELECT COUNT(*) as total FROM TREATMENT1 WHERE HNNO = ?
         `, [hn]);
 
-        console.log(`Found ${rows.length} treatments for patient ${hn}`);
+        // If no treatments found, return early
+        if (rows.length === 0) {
+            return res.json({
+                success: true,
+                data: [],
+                pagination: {
+                    page: pageInt,
+                    limit: limitInt,
+                    total: countResult[0].total,
+                    totalPages: Math.ceil(countResult[0].total / limitInt)
+                }
+            });
+        }
+
+        // 2. Extract VNOs for Bulk Detail Fetching
+        const vnos = rows.map(t => t.VNO);
+        const placeholders = vnos.map(() => '?').join(',');
+
+        console.log(`📦 Found ${rows.length} treatments. Fetching details for VNOs:`, vnos);
+
+        // 3. Bulk Fetch Details (Drugs, Procedures, Labs, Radios)
+        const [drugs] = await db.execute(`
+            SELECT 
+                td.VNO, td.DRUG_CODE, td.QTY, td.UNIT_CODE, td.UNIT_PRICE, td.AMT, td.TIME1,
+                COALESCE(d.GENERIC_NAME, 'ยาไม่ระบุ') as GENERIC_NAME,
+                COALESCE(d.TRADE_NAME, '') as TRADE_NAME,
+                d.Type1, d.Dose1, d.Indication1, d.Comment1, d.eat1
+            FROM TREATMENT1_DRUG td
+            LEFT JOIN TABLE_DRUG d ON td.DRUG_CODE = d.DRUG_CODE
+            WHERE td.VNO IN (${placeholders})
+        `, vnos);
+
+        const [procedures] = await db.execute(`
+            SELECT 
+                tmp.VNO, tmp.MEDICAL_PROCEDURE_CODE, tmp.QTY, tmp.UNIT_CODE, tmp.UNIT_PRICE, tmp.AMT,
+                COALESCE(mp.MED_PRO_NAME_THAI, 'หัตถการไม่ระบุ') as PROCEDURE_NAME
+            FROM TREATMENT1_MED_PROCEDURE tmp
+            LEFT JOIN TABLE_MEDICAL_PROCEDURES mp ON tmp.MEDICAL_PROCEDURE_CODE = mp.MEDICAL_PROCEDURE_CODE
+            WHERE tmp.VNO IN (${placeholders})
+        `, vnos);
+
+        const [labTests] = await db.execute(`
+             SELECT tl.VNO, tl.LABCODE, COALESCE(l.LABNAME, 'การตรวจไม่ระบุ') as LABNAME, 100 as PRICE
+             FROM TREATMENT1_LABORATORY tl
+             LEFT JOIN TABLE_LAB l ON tl.LABCODE = l.LABCODE
+             WHERE tl.VNO IN (${placeholders})
+        `, vnos);
+
+        const [radioTests] = await db.execute(`
+             SELECT tr.VNO, tr.RLCODE, COALESCE(r.RLNAME, 'การตรวจไม่ระบุ') as RLNAME, 200 as PRICE
+             FROM TREATMENT1_RADIOLOGICAL tr
+             LEFT JOIN TABLE_RADIOLOGICAL r ON tr.RLCODE = r.RLCODE
+             WHERE tr.VNO IN (${placeholders})
+        `, vnos);
+
+        // 4. Map Details to Treatments
+        const drugMap = {};
+        const procMap = {};
+        const labMap = {};
+        const radioMap = {};
+
+        drugs.forEach(d => {
+            if (!drugMap[d.VNO]) drugMap[d.VNO] = [];
+            drugMap[d.VNO].push(d);
+        });
+        procedures.forEach(p => {
+            if (!procMap[p.VNO]) procMap[p.VNO] = [];
+            procMap[p.VNO].push(p);
+        });
+        labTests.forEach(l => {
+            if (!labMap[l.VNO]) labMap[l.VNO] = [];
+            labMap[l.VNO].push(l);
+        });
+        radioTests.forEach(r => {
+            if (!radioMap[r.VNO]) radioMap[r.VNO] = [];
+            radioMap[r.VNO].push(r);
+        });
+
+        const detailedTreatments = rows.map(t => ({
+            ...t,
+            drugs: drugMap[t.VNO] || [],
+            procedures: procMap[t.VNO] || [],
+            labTests: labMap[t.VNO] || [],
+            radiologicalTests: radioMap[t.VNO] || [],
+            treatment: t // Backward compatibility for frontend accessors that might expect treatment.treatment.X
+        }));
+
+        console.log(`✅ Successfully enriched ${detailedTreatments.length} treatment records.`);
 
         res.json({
             success: true,
-            data: rows,
+            data: detailedTreatments,
             pagination: {
                 page: pageInt,
                 limit: limitInt,
