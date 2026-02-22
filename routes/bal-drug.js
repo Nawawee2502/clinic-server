@@ -63,11 +63,6 @@ router.get('/:drugCode/lots', async (req, res) => {
             FROM BAL_DRUG 
             WHERE DRUG_CODE = ? 
             AND QTY > 0
-            AND LOT_NO IS NOT NULL
-            AND LOT_NO != ''
-            AND LOT_NO != '-'
-            AND EXPIRE_DATE IS NOT NULL
-            AND EXPIRE_DATE != '-'
             ORDER BY EXPIRE_DATE ASC
         `;
 
