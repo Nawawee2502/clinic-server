@@ -1784,17 +1784,11 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?)
 
         // ✅ Calculate ACTUAL_PRICE (Backend Calculation)
         console.log(`💰 [${vno}] Calculating ACTUAL_PRICE...`);
-        let calculatedActualPrice = 100; // Start with default Doctor Fee
-        if (req.body.TREATMENT_FEE) {
-            const requestedFee = parseFloat(req.body.TREATMENT_FEE);
-            // If user explicitly specifically sends a fee, use it (unless it's 0 for Gold Card, we might still want standard fee? 
-            // But usually standard DF is 100. Let's start with 100 base)
-            // Actually, if it's a Gold Card case where everything is 0, we want the REAL price.
-            // So we should enforce standard DF (100) if the requested fee is 0.
-            if (requestedFee > 0) {
-                calculatedActualPrice = requestedFee;
-            }
-        }
+        // ✅ Use the explicitly sent TREATMENT_FEE as the base (could be 0 for gold card)
+        // ★ ต้องใช้ !== undefined ไม่ใช่ truthy check เพราะ 0 เป็น valid value
+        let calculatedActualPrice = (req.body.TREATMENT_FEE !== undefined && req.body.TREATMENT_FEE !== null)
+            ? parseFloat(req.body.TREATMENT_FEE) || 0
+            : 100; // default เมื่อไม่ได้ส่งมา
 
         // 1. Calculate Drugs Price
         let calcDrugs = [];
