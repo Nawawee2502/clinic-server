@@ -757,7 +757,7 @@ router.get('/check-ucs-usage/:hn', async (req, res) => {
         const month = thailandTime.getMonth() + 1; // 1-indexed
 
         const [rows] = await db.execute(`
-            SELECT COUNT(*) as count 
+            SELECT COALESCE(MAX(t.EXTERNAL_UCS_COUNT), 0) as lastCount
             FROM TREATMENT1 t
             INNER JOIN PATIENT1 p ON t.HNNO = p.HNCODE
             WHERE t.HNNO = ? 
@@ -767,7 +767,8 @@ router.get('/check-ucs-usage/:hn', async (req, res) => {
             AND MONTH(t.RDATE) = ?
         `, [hn, year, month]);
 
-        const usageCount = rows[0]?.count || 0;
+        const lastCount = rows[0]?.lastCount || 0;
+        const usageCount = lastCount; // ครั้งที่ล่าสุดในเดือนนี้ (frontend จะ +1 เพื่อแสดงครั้งถัดไป)
         const remainingUsage = Math.max(0, MAX_UCS_VISITS - usageCount);
 
         // ถ้าใช้ไปแล้ว 2 ครั้ง (count=2) -> isExceeded = 2 > 2 = false (ยังไม่เกิน, ครั้งนี้ฟรี)
