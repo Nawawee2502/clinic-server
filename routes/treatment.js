@@ -77,8 +77,8 @@ const ensureProcedureExists = async (connection, procedureCode, procedureName) =
         // ✅ ใช้ INSERT IGNORE และ await เพื่อให้รอให้เสร็จก่อน
         await connection.execute(`
             INSERT IGNORE INTO TABLE_MEDICAL_PROCEDURES 
-            (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE) 
-            VALUES (?, ?, ?, 'Custom', 0)
+            (MEDICAL_PROCEDURE_CODE, MED_PRO_NAME_THAI, MED_PRO_NAME_ENG, MED_PRO_TYPE, UNIT_PRICE, UCS_CARD) 
+            VALUES (?, ?, ?, 'Custom', 0, 'N')
         `, [
             code,
             name || 'หัตถการที่ไม่ระบุชื่อ',
@@ -650,7 +650,8 @@ router.get('/:vno', async (req, res) => {
                 COALESCE(mp.MED_PRO_TYPE, 'ทั่วไป') as MED_PRO_TYPE,
                 COALESCE(u.UNIT_NAME, tmp.UNIT_CODE) as UNIT_NAME,
                 tmp.MEDICAL_PROCEDURE_CODE as PROCEDURE_CODE,
-                COALESCE(mp.MED_PRO_NAME_THAI, 'หัตถการไม่ระบุ') as PROCEDURE_NAME
+                COALESCE(mp.MED_PRO_NAME_THAI, 'หัตถการไม่ระบุ') as PROCEDURE_NAME,
+                COALESCE(mp.UCS_CARD, 'N') as UCS_CARD
             FROM TREATMENT1_MED_PROCEDURE tmp
             LEFT JOIN TABLE_MEDICAL_PROCEDURES mp ON tmp.MEDICAL_PROCEDURE_CODE = mp.MEDICAL_PROCEDURE_CODE
             LEFT JOIN TABLE_UNIT u ON tmp.UNIT_CODE = u.UNIT_CODE
