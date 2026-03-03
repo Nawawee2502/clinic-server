@@ -758,12 +758,13 @@ router.get('/check-ucs-usage/:hn', async (req, res) => {
 
         const [rows] = await db.execute(`
             SELECT COUNT(*) as count 
-            FROM TREATMENT1 
-            WHERE HNNO = ? 
-            AND UCS_CARD = 'Y'
-            AND STATUS1 != 'ยกเลิก'
-            AND YEAR(RDATE) = ? 
-            AND MONTH(RDATE) = ?
+            FROM TREATMENT1 t
+            INNER JOIN PATIENT1 p ON t.HNNO = p.HNCODE
+            WHERE t.HNNO = ? 
+            AND p.UCS_CARD = 'Y'
+            AND t.STATUS1 != 'ยกเลิก'
+            AND YEAR(t.RDATE) = ? 
+            AND MONTH(t.RDATE) = ?
         `, [hn, year, month]);
 
         const usageCount = rows[0]?.count || 0;
