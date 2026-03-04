@@ -763,6 +763,7 @@ router.get('/check-ucs-usage/:hn', async (req, res) => {
             WHERE t.HNNO = ? 
             AND p.UCS_CARD = 'Y'
             AND t.STATUS1 != 'ยกเลิก'
+            AND t.PAYMENT_STATUS = 'ชำระเงินแล้ว'
             AND YEAR(t.RDATE) = ? 
             AND MONTH(t.RDATE) = ?
         `, [hn, year, month]);
@@ -771,9 +772,9 @@ router.get('/check-ucs-usage/:hn', async (req, res) => {
         const usageCount = lastCount; // ครั้งที่ล่าสุดในเดือนนี้ (frontend จะ +1 เพื่อแสดงครั้งถัดไป)
         const remainingUsage = Math.max(0, MAX_UCS_VISITS - usageCount);
 
-        // ถ้าใช้ไปแล้ว 2 ครั้ง (count=2) -> isExceeded = 2 > 2 = false (ยังไม่เกิน, ครั้งนี้ฟรี)
-        // ถ้าใช้ไปแล้ว 3 ครั้ง (count=3) -> isExceeded = 3 > 2 = true (เกินแล้ว, ครั้งนี้จ่าย)
-        const isExceeded = usageCount > MAX_UCS_VISITS;
+        // ถ้าชำระแล้ว 2 ครั้ง (count=2) -> exceeded (ครั้งถัดไปต้องจ่าย)
+        // ถ้าชำระแล้ว 1 ครั้ง (count=1) -> ฟรี
+        const isExceeded = usageCount >= MAX_UCS_VISITS;
 
         console.log(`🔍 Check UCS Usage for HN ${hn}: Count=${usageCount}, Max=${MAX_UCS_VISITS}, Exceeded=${isExceeded}`, {
             year, month
@@ -2204,11 +2205,8 @@ router.get('/check/ucs-usage/:hncode', async (req, res) => {
         const currentMonth = thailandTime.getMonth() + 1; // getMonth() returns 0-11
 
         // ✅ นับจำนวนครั้งที่ใช้สิทธิ์บัตรทองในเดือนนี้
-        // โดยนับจาก TREATMENT1 ที่:
-        // - HNNO = hncode
-        // - UCS_CARD = 'Y'
-        // - RDATE อยู่ในเดือนปัจจุบัน
-        // - STATUS1 ไม่ใช่ 'ยกเลิก' (นับเฉพาะที่เสร็จสิ้นแล้ว)
+        // นับเฉพาะ visit ที่ "ชำระเงินแล้ว" เท่านั้น
+        // เพื่อไม่ให้นับ visit ปัจจุบันที่กำลังรอชำระอยู่
         const [rows] = await db.execute(`
             SELECT COUNT(*) as usage_count
             FROM TREATMENT1 t
@@ -2217,10 +2215,15 @@ router.get('/check/ucs-usage/:hncode', async (req, res) => {
               AND YEAR(t.RDATE) = ?
               AND MONTH(t.RDATE) = ?
               AND t.STATUS1 NOT IN ('ยกเลิก')
+              AND t.PAYMENT_STATUS = 'ชำระเงินแล้ว'
         `, [hncode, currentYear, currentMonth]);
 
         const usageCount = rows[0]?.usage_count || 0;
         const maxUsage = 2; // จำกัด 2 ครั้งต่อเดือน
+        // ถ้าชำระเงินแล้ว 2 ครั้ง (count = 2) แล้ว ครั้งถัดไป (ที่ 3) จึงจะ exceeded
+        // ครั้งที่ 1 → usageCount = 0 (ยังไม่เคยชำระ) → ฟรี
+        // ครั้งที่ 2 → usageCount = 1 (ชำระไปแล้ว 1 ครั้ง) → ฟรี
+        // ครั้งที่ 3 → usageCount = 2 (ชำระไปแล้ว 2 ครั้ง) → เกินสิทธิ์
         const isExceeded = usageCount >= maxUsage;
 
         res.json({
