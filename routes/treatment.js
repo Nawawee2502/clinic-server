@@ -306,7 +306,6 @@ router.get('/reports/psychotropic-drugs', async (req, res) => {
                 p.IDNO,
                 p.TEL1,
                 p.SEX,
-                p.BIRTHDATE,
                 td.DRUG_CODE,
                 td.GENERIC_NAME,
                 td.TRADE_NAME,
