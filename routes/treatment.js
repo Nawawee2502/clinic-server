@@ -271,6 +271,125 @@ router.get('/', async (req, res) => {
     }
 });
 
+// ✅ GET Psychotropic Drug Report (รายงานยาวัตถุออกฤทธิ์)
+router.get('/reports/psychotropic-drugs', async (req, res) => {
+    try {
+        const db = await require('../config/db');
+        const { date_from, date_to, drug_code, search, limit = 100000 } = req.query;
+
+        let whereClause = `WHERE (td.Type1 = 'วัตถุออกฤทธิ์' OR td.Type1 = 'TD004')`;
+        let params = [];
+
+        if (date_from) {
+            whereClause += ' AND DATE(t1.RDATE) >= ?';
+            params.push(date_from);
+        }
+        if (date_to) {
+            whereClause += ' AND DATE(t1.RDATE) <= ?';
+            params.push(date_to);
+        }
+        if (drug_code) {
+            whereClause += ' AND td.DRUG_CODE = ?';
+            params.push(drug_code);
+        }
+        if (search) {
+            whereClause += ' AND (p.NAME1 LIKE ? OR p.SURNAME LIKE ? OR p.HNCODE LIKE ? OR p.IDNO LIKE ?)';
+            const s = `%${search}%`;
+            params.push(s, s, s, s);
+        }
+
+        // Main records
+        const [rows] = await db.execute(`
+            SELECT
+                p.HNCODE AS HN,
+                CONCAT(IFNULL(p.PRENAME,''), IFNULL(p.NAME1,''), ' ', IFNULL(p.SURNAME,'')) AS PATIENT_NAME,
+                p.IDNO,
+                p.TEL1,
+                p.SEX,
+                p.BIRTHDATE,
+                td.DRUG_CODE,
+                td.GENERIC_NAME,
+                td.TRADE_NAME,
+                td.UNIT_CODE AS DRUG_UNIT,
+                tdu.QTY,
+                tdu.UNIT_CODE,
+                tdu.UNIT_PRICE,
+                tdu.AMT,
+                t1.VNO,
+                t1.RDATE,
+                t1.EMP_CODE,
+                e.EMP_NAME
+            FROM TREATMENT1_DRUG tdu
+            JOIN TABLE_DRUG td ON tdu.DRUG_CODE = td.DRUG_CODE
+            JOIN TREATMENT1 t1 ON tdu.VNO = t1.VNO
+            JOIN patient1 p ON t1.HNNO = p.HNCODE
+            LEFT JOIN EMPLOYEE1 e ON t1.EMP_CODE = e.EMP_CODE
+            ${whereClause}
+            ORDER BY t1.RDATE DESC, p.HNCODE
+            LIMIT ?
+        `, [...params, parseInt(limit)]);
+
+        // Also fetch all distinct psychotropic drugs for the filter dropdown
+        const [drugs] = await db.execute(`
+            SELECT DISTINCT
+                td.DRUG_CODE,
+                td.GENERIC_NAME,
+                td.TRADE_NAME,
+                td.Type1
+            FROM TABLE_DRUG td
+            WHERE (td.Type1 = 'วัตถุออกฤทธิ์' OR td.Type1 = 'TD004')
+            ORDER BY td.GENERIC_NAME
+        `);
+
+        // Summary stats
+        const uniquePatients = [...new Set(rows.map(r => r.HN))].length;
+        const totalQty = rows.reduce((sum, r) => sum + (parseFloat(r.QTY) || 0), 0);
+
+        // Group by drug name
+        const byDrug = {};
+        rows.forEach(r => {
+            const key = r.DRUG_CODE;
+            if (!byDrug[key]) {
+                byDrug[key] = {
+                    DRUG_CODE: r.DRUG_CODE,
+                    GENERIC_NAME: r.GENERIC_NAME,
+                    TRADE_NAME: r.TRADE_NAME,
+                    dispensingCount: 0,
+                    totalQty: 0,
+                    uniquePatients: new Set()
+                };
+            }
+            byDrug[key].dispensingCount++;
+            byDrug[key].totalQty += parseFloat(r.QTY) || 0;
+            byDrug[key].uniquePatients.add(r.HN);
+        });
+
+        const drugSummary = Object.values(byDrug).map(d => ({
+            ...d,
+            uniquePatients: d.uniquePatients.size
+        }));
+
+        return res.json({
+            success: true,
+            data: rows,
+            drugs: drugs,
+            summary: {
+                totalRecords: rows.length,
+                uniquePatients,
+                totalQty,
+                drugSummary
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching psychotropic drug report:', error);
+        res.status(500).json({
+            success: false,
+            message: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายงานยาวัตถุออกฤทธิ์',
+            error: error.message
+        });
+    }
+});
+
 // ✅ GET Bulk Treatment Details (Optimized for Reports)
 router.get('/reports/bulk-details', async (req, res) => {
     try {
