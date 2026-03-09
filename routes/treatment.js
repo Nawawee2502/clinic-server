@@ -317,13 +317,11 @@ router.get('/reports/psychotropic-drugs', async (req, res) => {
                 tdu.AMT,
                 t1.VNO,
                 t1.RDATE,
-                t1.EMP_CODE,
-                e.EMP_NAME
+                t1.EMP_CODE
             FROM TREATMENT1_DRUG tdu
             JOIN TABLE_DRUG td ON tdu.DRUG_CODE = td.DRUG_CODE
             JOIN TREATMENT1 t1 ON tdu.VNO = t1.VNO
             JOIN patient1 p ON t1.HNNO = p.HNCODE
-            LEFT JOIN EMPLOYEE1 e ON t1.EMP_CODE = e.EMP_CODE
             ${whereClause}
             ORDER BY t1.RDATE DESC, p.HNCODE
             LIMIT ?
@@ -381,7 +379,7 @@ router.get('/reports/psychotropic-drugs', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error fetching psychotropic drug report:', error);
+        console.error('❌ Error fetching psychotropic drug report:', error);
         res.status(500).json({
             success: false,
             message: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายงานยาวัตถุออกฤทธิ์',
